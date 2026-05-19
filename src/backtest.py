@@ -19,16 +19,28 @@ import warnings, io, base64, json
 warnings.filterwarnings('ignore')
 
 def fetch_data(ticker, start, end):
-    raw = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
+
+    ticker_obj = yf.Ticker(ticker)
+
+    raw = ticker_obj.history(
+        start=start,
+        end=end,
+        auto_adjust=True
+    )
+
     if raw.empty:
         raise ValueError(f"No data for {ticker}.")
+
     if isinstance(raw.columns, pd.MultiIndex):
         raw.columns = raw.columns.get_level_values(0)
-    df = raw[['Open','High','Low','Close','Volume']].copy()
-    df.dropna(inplace=True)
-    df.index = pd.to_datetime(df.index)
-    return df
 
+    df = raw[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+
+    df.dropna(inplace=True)
+
+    df.index = pd.to_datetime(df.index)
+
+    return df
 def add_indicators(df, params):
     df = df.copy()
     s = params
