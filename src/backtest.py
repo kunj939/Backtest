@@ -22,24 +22,24 @@ def fetch_data(ticker, start, end):
 
     import yfinance as yf
     import pandas as pd
-    import time
 
     ticker = ticker.strip().split(" ")[0]
 
-    time.sleep(1)
-
-    ticker_obj = yf.Ticker(ticker)
-
-    raw = ticker_obj.history(
+    raw = yf.download(
+        ticker,
         period="5y",
+        progress=False,
         auto_adjust=True,
-        timeout=20
+        threads=False
     )
 
     print(raw.head())
 
     if raw.empty:
         raise ValueError(f"No data for {ticker}.")
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw.columns = raw.columns.get_level_values(0)
 
     df = raw[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
 
@@ -282,7 +282,7 @@ def run_full_backtest(ticker='AAPL', start='2020-01-01', end=None,
     df=fetch_data(ticker,start,end)
 
 
-    
+
     df=add_indicators(df,params)
     df=STRATEGY_MAP.get(strategy,strategy_ma_crossover)(df,params)
     df=run_backtest(df,initial_capital=capital)
