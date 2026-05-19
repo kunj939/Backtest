@@ -2,9 +2,8 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/*.py",
-      "use": "@vercel/python",
-      "config": { "maxLambdaSize": "50mb" }
+      "src": "app.py",
+      "use": "@vercel/python"
     },
     {
       "src": "public/**",
@@ -12,11 +11,17 @@
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1.py" },
-    { "src": "/(.*)", "dest": "/public/$1" },
-    { "src": "/", "dest": "/public/index.html" }
-  ],
-  "env": {
-    "GROQ_API_KEY": "@groq_api_key"
-  }
+    {
+      "src": "/api/(.*)",
+      "dest": "app.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
+    },
+    {
+      "src": "/",
+      "dest": "/public/index.html"
+    }
+  ]
 }
