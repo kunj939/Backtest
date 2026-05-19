@@ -15,24 +15,31 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from datetime import datetime
 import warnings, io, base64, json
-
+import time
 warnings.filterwarnings('ignore')
 
 def fetch_data(ticker, start, end):
 
+    import yfinance as yf
+    import pandas as pd
+    import time
+
+    ticker = ticker.strip().split(" ")[0]
+
+    time.sleep(1)
+
     ticker_obj = yf.Ticker(ticker)
 
     raw = ticker_obj.history(
-        start=start,
-        end=end,
-        auto_adjust=True
+        period="5y",
+        auto_adjust=True,
+        timeout=20
     )
+
+    print(raw.head())
 
     if raw.empty:
         raise ValueError(f"No data for {ticker}.")
-
-    if isinstance(raw.columns, pd.MultiIndex):
-        raw.columns = raw.columns.get_level_values(0)
 
     df = raw[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
 
@@ -41,6 +48,7 @@ def fetch_data(ticker, start, end):
     df.index = pd.to_datetime(df.index)
 
     return df
+
 def add_indicators(df, params):
     df = df.copy()
     s = params
@@ -272,6 +280,9 @@ def run_full_backtest(ticker='AAPL', start='2020-01-01', end=None,
     if end is None: end=datetime.today().strftime('%Y-%m-%d')
     if params is None: params={}
     df=fetch_data(ticker,start,end)
+
+
+    
     df=add_indicators(df,params)
     df=STRATEGY_MAP.get(strategy,strategy_ma_crossover)(df,params)
     df=run_backtest(df,initial_capital=capital)
