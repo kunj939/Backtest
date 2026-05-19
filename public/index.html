@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>QuantEdge v2.0 — Agentic Backtester</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#080c10;--panel:#0d1117;--panel2:#161b22;--border:#21262d;--border2:#30363d;
+  --green:#3fb950;--green-dim:#1a4a23;--red:#f85149;--blue:#58a6ff;
+  --yellow:#e3b341;--purple:#bc8cff;--white:#f0f6fc;--gray:#8b949e;--gray2:#484f58;
+  --mono:'Space Mono',monospace;--sans:'Syne',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--white);font-family:var(--mono);min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px);pointer-events:none;z-index:9999}
+
+/* NAV */
+nav{display:flex;align-items:center;justify-content:space-between;padding:0 2rem;height:56px;background:var(--panel);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.nav-logo{font-family:var(--sans);font-weight:800;font-size:1.1rem;letter-spacing:-0.02em;display:flex;align-items:center;gap:0.5rem}
+.nav-logo .dot{color:var(--green);font-size:1.3rem}
+.nav-badge{background:var(--green-dim);border:1px solid var(--green);color:var(--green);font-size:0.6rem;padding:2px 7px;border-radius:20px;letter-spacing:0.1em}
+.nav-right{display:flex;align-items:center;gap:1rem}
+#groq-status{font-size:0.65rem;display:flex;align-items:center;gap:0.35rem}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--gray2)}
+.status-dot.on{background:var(--green);animation:pulse 2s ease-in-out infinite}
+
+/* HERO */
+.hero{padding:2.5rem 2rem 1rem;max-width:1200px;margin:0 auto}
+.hero-tag{display:inline-flex;align-items:center;gap:0.5rem;color:var(--green);font-size:0.68rem;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.75rem;opacity:0.8}
+.hero-tag::before{content:'';width:20px;height:1px;background:var(--green)}
+.hero h1{font-family:var(--sans);font-size:clamp(1.8rem,3.5vw,2.8rem);font-weight:800;line-height:1.1;letter-spacing:-0.03em;margin-bottom:0.5rem}
+.hero h1 span{color:var(--green)}
+.hero p{color:var(--gray);font-size:0.8rem;line-height:1.7;max-width:580px}
+
+/* LAYOUT */
+.main{max-width:1200px;margin:0 auto;padding:1.5rem 2rem 4rem;display:grid;grid-template-columns:340px 1fr;gap:1.5rem}
+
+/* CARD */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:1rem}
+.card:last-child{margin-bottom:0}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;border-bottom:1px solid var(--border);background:var(--panel2)}
+.card-title{font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--gray);font-weight:700}
+.card-body{padding:1rem}
+
+/* FORM */
+.field{margin-bottom:0.8rem}.field:last-child{margin-bottom:0}
+label{display:block;font-size:0.65rem;color:var(--gray);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.3rem}
+input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--border2);border-radius:5px;color:var(--white);font-family:var(--mono);font-size:0.8rem;padding:0.45rem 0.7rem;outline:none;transition:border-color 0.2s,box-shadow 0.2s}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(88,166,255,0.12)}
+textarea{resize:vertical;min-height:70px;line-height:1.5}
+select{cursor:pointer}
+select option{background:var(--panel2)}
+.input-row{display:grid;grid-template-columns:1fr 1fr;gap:0.5rem}
+
+/* STRATEGY TABS */
+.strategy-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:0.35rem;margin-bottom:0.8rem}
+.stab{background:var(--panel2);border:1px solid var(--border);border-radius:5px;padding:0.4rem 0.3rem;text-align:center;font-size:0.6rem;letter-spacing:0.05em;color:var(--gray);cursor:pointer;transition:all 0.15s;text-transform:uppercase}
+.stab:hover{border-color:var(--border2);color:var(--white)}
+.stab.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+
+/* PARAM SECTIONS */
+.param-section{display:none}.param-section.show{display:block}
+
+/* BUTTONS */
+.btn-run{width:100%;background:var(--green);color:#000;font-family:var(--mono);font-weight:700;font-size:0.78rem;letter-spacing:0.08em;text-transform:uppercase;border:none;border-radius:6px;padding:0.7rem;cursor:pointer;transition:opacity 0.2s,transform 0.1s;display:flex;align-items:center;justify-content:center;gap:0.5rem}
+.btn-run:hover{opacity:0.88}.btn-run:active{transform:scale(0.99)}.btn-run:disabled{opacity:0.45;cursor:not-allowed}
+.btn-secondary{background:var(--panel2);border:1px solid var(--border2);color:var(--gray);font-family:var(--mono);font-size:0.7rem;padding:0.4rem 0.75rem;border-radius:5px;cursor:pointer;transition:all 0.15s;letter-spacing:0.05em}
+.btn-secondary:hover{border-color:var(--purple);color:var(--purple)}
+.btn-ai{width:100%;background:transparent;border:1px solid var(--purple);color:var(--purple);font-family:var(--mono);font-weight:700;font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;border-radius:6px;padding:0.55rem;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-top:0.5rem}
+.btn-ai:hover{background:rgba(188,140,255,0.1)}.btn-ai:disabled{opacity:0.4;cursor:not-allowed}
+
+/* METRICS */
+.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.45rem}
+.metric-cell{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:0.55rem 0.7rem}
+.metric-label{font-size:0.58rem;color:var(--gray);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.2rem}
+.metric-value{font-size:0.9rem;font-weight:700}
+.pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--white)}.blue{color:var(--blue)}
+
+/* STATUS BAR */
+.status-bar{display:flex;align-items:center;gap:0.5rem;padding:0.45rem 1rem;background:var(--panel2);border-top:1px solid var(--border);font-size:0.62rem;color:var(--gray);letter-spacing:0.05em}
+
+/* CHART */
+.chart-container{min-height:400px;display:flex;align-items:center;justify-content:center;position:relative}
+.chart-container img{width:100%;border-radius:4px;display:block}
+.empty-state{text-align:center;color:var(--gray2);padding:3.5rem 2rem}
+.empty-state .icon{font-size:2.5rem;margin-bottom:0.75rem;opacity:0.35}
+.empty-state h3{font-family:var(--sans);font-size:0.9rem;color:var(--gray);margin-bottom:0.4rem}
+.empty-state p{font-size:0.72rem;line-height:1.6}
+
+/* TRADE TABLE */
+.trade-table{width:100%;border-collapse:collapse;font-size:0.7rem}
+.trade-table th{text-align:left;color:var(--gray);font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;padding:0.45rem 0.7rem;border-bottom:1px solid var(--border);white-space:nowrap}
+.trade-table td{padding:0.45rem 0.7rem;border-bottom:1px solid var(--border)}
+.trade-table tr:last-child td{border-bottom:none}
+.trade-table tr:hover td{background:var(--panel2)}
+.win{color:var(--green);font-weight:700}.loss{color:var(--red);font-weight:700}
+
+/* AI ANALYSIS */
+.analysis-text{font-size:0.78rem;line-height:1.85;color:#b1bac4;padding:1rem}
+.analysis-text p{margin-bottom:0.9rem}.analysis-text p:last-child{margin-bottom:0}
+
+/* OPTIMIZER */
+.optim-item{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:0.65rem 0.8rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.75rem}
+.optim-item:last-child{margin-bottom:0}
+.optim-param{font-size:0.7rem;color:var(--blue);min-width:100px;font-weight:700}
+.optim-vals{font-size:0.68rem;color:var(--gray)}
+.optim-vals span{color:var(--yellow)}
+.optim-reason{font-size:0.65rem;color:var(--gray2);margin-left:auto;text-align:right;max-width:160px}
+
+/* PARSED STRATEGY PREVIEW */
+.parse-preview{background:var(--panel2);border:1px solid var(--border2);border-radius:6px;padding:0.7rem;margin-top:0.5rem;font-size:0.7rem;color:var(--gray);display:none}
+.parse-preview .reasoning{color:var(--yellow);font-size:0.68rem;margin-top:0.4rem;font-style:italic}
+
+/* ROADMAP */
+.roadmap-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.5rem}
+.roadmap-item{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:0.7rem}
+.roadmap-title{font-family:var(--sans);font-size:0.76rem;font-weight:600;color:var(--white);margin-bottom:0.2rem;display:flex;align-items:center;gap:0.3rem}
+.roadmap-desc{font-size:0.65rem;color:var(--gray);line-height:1.5}
+
+/* ERROR */
+.error-box{background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.3);border-radius:6px;padding:0.75rem 1rem;font-size:0.72rem;color:var(--red);margin:0.5rem 0}
+
+/* LOADERS */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,0.3);border-top-color:#000;border-radius:50%;animation:spin 0.7s linear infinite}
+.loader{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(8,12,16,0.92);border-radius:8px;z-index:10;gap:0.75rem}
+.loader-ring{width:36px;height:36px;border:3px solid var(--border2);border-top-color:var(--green);border-radius:50%;animation:spin 0.8s linear infinite}
+.loader-text{font-size:0.7rem;color:var(--gray);letter-spacing:0.1em}
+.mini-loader{display:inline-flex;align-items:center;gap:0.4rem;color:var(--gray);font-size:0.72rem;padding:0.6rem 1rem}
+.mini-ring{width:14px;height:14px;border:2px solid var(--border2);border-top-color:var(--purple);border-radius:50%;animation:spin 0.7s linear infinite}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.animate-in{animation:fadeIn 0.3s ease forwards}
+
+@media(max-width:900px){.main{grid-template-columns:1fr}.roadmap-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo"><span class="dot">◆</span>QuantEdge<span class="nav-badge">v2.0</span></div>
+  <div class="nav-right">
+    <div id="groq-status"><div class="status-dot" id="groq-dot"></div><span id="groq-label">Checking AI...</span></div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-tag">Agentic Quant Research Platform</div>
+  <h1>Backtest any <span>trading strategy</span><br/>with AI-powered analysis.</h1>
+  <p>Multi-strategy engine · Natural language strategy builder · Groq LLM agents · Institutional metrics</p>
+</section>
+
+<div class="main">
+<!-- ═══ LEFT ═══ -->
+<aside>
+
+  <!-- Strategy Selector -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">Strategy Type</span></div>
+    <div class="card-body">
+      <div class="strategy-tabs">
+        <div class="stab active" data-strat="ma_crossover">MA Cross</div>
+        <div class="stab" data-strat="rsi">RSI</div>
+        <div class="stab" data-strat="macd">MACD</div>
+        <div class="stab" data-strat="bollinger">Bollinger</div>
+        <div class="stab" data-strat="combined">Combined</div>
+        <div class="stab" data-strat="custom">🤖 AI Custom</div>
+      </div>
+
+      <!-- MA Crossover params -->
+      <div class="param-section show" id="params-ma_crossover">
+        <div class="input-row field">
+          <div><label>Short MA</label><input type="number" id="short_ma" value="20" min="5" max="100"/></div>
+          <div><label>Long MA</label><input type="number" id="long_ma" value="50" min="10" max="300"/></div>
+        </div>
+      </div>
+
+      <!-- RSI params -->
+      <div class="param-section" id="params-rsi">
+        <div class="input-row field">
+          <div><label>RSI Period</label><input type="number" id="rsi_period" value="14" min="5" max="50"/></div>
+          <div><label>Oversold</label><input type="number" id="rsi_oversold" value="30" min="10" max="45"/></div>
+        </div>
+        <div class="field"><label>Overbought</label><input type="number" id="rsi_overbought" value="70" min="55" max="90"/></div>
+      </div>
+
+      <!-- MACD params -->
+      <div class="param-section" id="params-macd">
+        <div class="input-row field">
+          <div><label>Fast EMA</label><input type="number" id="macd_fast" value="12" min="5" max="50"/></div>
+          <div><label>Slow EMA</label><input type="number" id="macd_slow" value="26" min="10" max="100"/></div>
+        </div>
+        <div class="field"><label>Signal Line</label><input type="number" id="macd_signal" value="9" min="3" max="30"/></div>
+      </div>
+
+      <!-- Bollinger params -->
+      <div class="param-section" id="params-bollinger">
+        <div class="input-row field">
+          <div><label>BB Period</label><input type="number" id="bb_period" value="20" min="10" max="50"/></div>
+          <div><label>Std Dev</label><input type="number" id="bb_std" value="2.0" min="1" max="3" step="0.1"/></div>
+        </div>
+      </div>
+
+      <!-- Combined params -->
+      <div class="param-section" id="params-combined">
+        <div class="input-row field">
+          <div><label>Short MA</label><input type="number" id="c_short_ma" value="20"/></div>
+          <div><label>Long MA</label><input type="number" id="c_long_ma" value="50"/></div>
+        </div>
+        <div class="field"><label>RSI Overbought Filter</label><input type="number" id="c_rsi_ob" value="70"/></div>
+      </div>
+
+      <!-- AI Custom Strategy -->
+      <div class="param-section" id="params-custom">
+        <div class="field">
+          <label>Describe your strategy in plain English</label>
+          <textarea id="strategy_desc" placeholder="e.g. Buy when RSI drops below 30 and price is above the 50-day moving average. Sell when RSI goes above 70 or MA crossover turns bearish."></textarea>
+        </div>
+        <button class="btn-ai" id="parse-btn" onclick="parseStrategy()">
+          <span id="parse-icon">⚡</span> Parse with AI
+        </button>
+        <div class="parse-preview" id="parse-preview">
+          <div id="parse-summary"></div>
+          <div class="reasoning" id="parse-reasoning"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backtest Config -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">Backtest Config</span></div>
+    <div class="card-body">
+      <div class="field">
+        <label>Ticker Symbol</label>
+        <select id="ticker">
+          <option value="AAPL">AAPL — Apple</option>
+          <option value="MSFT">MSFT — Microsoft</option>
+          <option value="GOOGL">GOOGL — Alphabet</option>
+          <option value="TSLA">TSLA — Tesla</option>
+          <option value="NVDA">NVDA — NVIDIA</option>
+          <option value="AMZN">AMZN — Amazon</option>
+          <option value="META">META — Meta</option>
+          <option value="SPY">SPY — S&P 500 ETF</option>
+          <option value="QQQ">QQQ — Nasdaq ETF</option>
+          <option value="BTC-USD">BTC-USD — Bitcoin</option>
+        </select>
+      </div>
+      <div class="field"><label>Start Date</label><input type="date" id="start" value="2020-01-01"/></div>
+      <div class="field"><label>Initial Capital (USD)</label><input type="number" id="capital" value="100000" min="1000" step="1000"/></div>
+      <div id="error-msg" class="error-box" style="display:none"></div>
+      <button class="btn-run" id="run-btn" onclick="runBacktest()">
+        <span class="btn-icon">▶</span> Run Backtest
+      </button>
+    </div>
+    <div class="status-bar"><div class="status-dot on"></div><span>Yahoo Finance · Live Data</span></div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="card" id="metrics-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">Performance Metrics</span>
+      <span id="ticker-badge" style="font-size:0.62rem;color:var(--green)"></span>
+    </div>
+    <div class="card-body"><div class="metrics-grid" id="metrics-grid"></div></div>
+    <div class="card-body" style="padding-top:0">
+      <button class="btn-ai" id="optim-btn" onclick="optimizeParams()" style="display:none">
+        <span>🔬</span> AI Optimize Parameters
+      </button>
+    </div>
+  </div>
+
+</aside>
+
+<!-- ═══ RIGHT ═══ -->
+<main>
+
+  <!-- Chart -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Research Chart</span>
+      <span id="chart-period" style="font-size:0.62rem;color:var(--gray)"></span>
+    </div>
+    <div class="chart-container" id="chart-container">
+      <div class="empty-state">
+        <div class="icon">📈</div>
+        <h3>No backtest run yet</h3>
+        <p>Select a strategy, configure parameters,<br/>and click Run Backtest.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Analysis -->
+  <div class="card" id="ai-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">⚡ AI Quant Analysis</span>
+      <span style="font-size:0.62rem;color:var(--purple)">Llama 3.3 · 70B</span>
+    </div>
+    <div id="ai-analysis"></div>
+  </div>
+
+  <!-- Optimizer Results -->
+  <div class="card" id="optim-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">🔬 Parameter Optimization Suggestions</span>
+      <span style="font-size:0.62rem;color:var(--yellow)">AI Agent</span>
+    </div>
+    <div class="card-body" id="optim-body"></div>
+  </div>
+
+  <!-- Trade Log -->
+  <div class="card" id="trades-card" style="display:none">
+    <div class="card-header">
+      <span class="card-title">Trade Log</span>
+      <span id="trades-count" style="font-size:0.62rem;color:var(--gray)"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="trade-table">
+        <thead><tr><th>#</th><th>Buy Date</th><th>Buy $</th><th>Sell Date</th><th>Sell $</th><th>P&L %</th><th>Result</th></tr></thead>
+        <tbody id="trade-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Roadmap -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">Future Extensions</span><span style="font-size:0.62rem;color:var(--gray)">Research Roadmap</span></div>
+    <div class="card-body">
+      <div class="roadmap-grid">
+        <div class="roadmap-item"><div class="roadmap-title">🤖 ML Signal Layer</div><div class="roadmap-desc">XGBoost / LSTM classifier trained on OHLCV + sector momentum features to replace heuristic signals.</div></div>
+        <div class="roadmap-item"><div class="roadmap-title">🎮 RL Agent</div><div class="roadmap-desc">PPO/SAC agent learning position sizing and entry/exit timing with Sharpe-scaled reward function.</div></div>
+        <div class="roadmap-item"><div class="roadmap-title">📊 Portfolio Optimizer</div><div class="roadmap-desc">Multi-strategy allocation via Markowitz MPT or Risk Parity with walk-forward optimization.</div></div>
+        <div class="roadmap-item"><div class="roadmap-title">⚡ Live Execution</div><div class="roadmap-desc">Alpaca / IBKR API integration with WebSocket feeds, Telegram alerts, and drawdown circuit breakers.</div></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  QuantEdge v2.0 — Frontend Logic
+// ══════════════════════════════════════════════════════════════
+
+let currentStrategy = 'ma_crossover';
+let lastResult      = null;
+let parsedParams    = null;
+
+// Check Groq status on load
+async function checkStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const dot   = document.getElementById('groq-dot');
+    const label = document.getElementById('groq-label');
+    if (d.groq_connected) {
+      dot.classList.add('on');
+      label.textContent = 'Groq AI · Connected';
+      label.style.color = 'var(--green)';
+    } else {
+      label.textContent = 'Groq AI · Add key in .env';
+      label.style.color = 'var(--yellow)';
+    }
+  } catch(e) {}
+}
+checkStatus();
+
+// Strategy tab switching
+document.querySelectorAll('.stab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.param-section').forEach(s => s.classList.remove('show'));
+    tab.classList.add('active');
+    currentStrategy = tab.dataset.strat;
+    const sec = document.getElementById('params-' + currentStrategy);
+    if (sec) sec.classList.add('show');
+    parsedParams = null;
+    document.getElementById('parse-preview').style.display = 'none';
+  });
+});
+
+// Collect current params
+function getParams() {
+  if (currentStrategy === 'custom' && parsedParams) return parsedParams;
+  const p = {};
+  const g = id => { const el = document.getElementById(id); return el ? el.value : null; };
+  if (currentStrategy === 'ma_crossover') {
+    p.short_ma = parseInt(g('short_ma')||20); p.long_ma = parseInt(g('long_ma')||50);
+  } else if (currentStrategy === 'rsi') {
+    p.rsi_period = parseInt(g('rsi_period')||14);
+    p.rsi_oversold = parseInt(g('rsi_oversold')||30);
+    p.rsi_overbought = parseInt(g('rsi_overbought')||70);
+  } else if (currentStrategy === 'macd') {
+    p.macd_fast = parseInt(g('macd_fast')||12);
+    p.macd_slow = parseInt(g('macd_slow')||26);
+    p.macd_signal = parseInt(g('macd_signal')||9);
+  } else if (currentStrategy === 'bollinger') {
+    p.bb_period = parseInt(g('bb_period')||20);
+    p.bb_std = parseFloat(g('bb_std')||2.0);
+  } else if (currentStrategy === 'combined') {
+    p.short_ma = parseInt(g('c_short_ma')||20);
+    p.long_ma = parseInt(g('c_long_ma')||50);
+    p.rsi_overbought = parseInt(g('c_rsi_ob')||70);
+  }
+  return p;
+}
+
+// ── AGENT: Parse Strategy ─────────────────────────────────────
+async function parseStrategy() {
+  const desc = document.getElementById('strategy_desc').value.trim();
+  if (!desc) { alert('Please describe your strategy first.'); return; }
+  const btn  = document.getElementById('parse-btn');
+  const icon = document.getElementById('parse-icon');
+  btn.disabled = true;
+  icon.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(188,140,255,0.3);border-top-color:var(--purple);border-radius:50%;animation:spin 0.7s linear infinite"></span>';
+  btn.childNodes[1].textContent = ' Parsing...';
+  try {
+    const r = await fetch('/api/parse-strategy', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({description: desc})
+    });
+    const d = await r.json();
+    if (d.error) { alert('Parse error: ' + d.error); return; }
+    parsedParams = d;
+    const preview = document.getElementById('parse-preview');
+    preview.style.display = 'block';
+    document.getElementById('parse-summary').innerHTML =
+      `<span style="color:var(--green)">✓ Parsed:</span> <span style="color:var(--white)">${d.strategy_name || d.strategy}</span>` +
+      (d.custom_rules ? ` · Buy: <span style="color:var(--blue)">${d.custom_rules.buy}</span> / Sell: <span style="color:var(--red)">${d.custom_rules.sell}</span>` : '');
+    document.getElementById('parse-reasoning').textContent = d.reasoning || '';
+  } catch(e) {
+    alert('Failed to parse: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    icon.textContent = '⚡';
+    btn.childNodes[1].textContent = ' Parse with AI';
+  }
+}
+
+// ── RUN BACKTEST ──────────────────────────────────────────────
+async function runBacktest() {
+  document.getElementById('error-msg').style.display = 'none';
+  setRunLoading(true);
+  const container = document.getElementById('chart-container');
+  container.innerHTML = `<div class="loader"><div class="loader-ring"></div><span class="loader-text">Fetching data · Computing signals...</span></div>`;
+
+  const ticker  = document.getElementById('ticker').value;
+  const start   = document.getElementById('start').value;
+  const capital = parseFloat(document.getElementById('capital').value);
+  const params  = getParams();
+
+  if (currentStrategy === 'custom' && !parsedParams) {
+    showError('Click "Parse with AI" first to process your strategy.');
+    setRunLoading(false);
+    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Parse your strategy first.</p></div>`;
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/backtest', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ticker, start, capital, strategy: currentStrategy, params})
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Backtest failed');
+
+    lastResult = data;
+    renderChart(data);
+    renderMetrics(data.metrics, data.ticker, data.strategy_label);
+    renderTrades(data.trades);
+    fetchAnalysis(data);
+
+  } catch(e) {
+    showError(e.message);
+    container.innerHTML = `<div class="empty-state"><div class="icon">❌</div><h3>Failed</h3><p>${e.message}</p></div>`;
+  } finally {
+    setRunLoading(false);
+  }
+}
+
+// ── RENDER CHART ──────────────────────────────────────────────
+function renderChart(data) {
+  document.getElementById('chart-period').textContent = `${data.start} → ${data.end}`;
+  document.getElementById('chart-container').innerHTML =
+    `<img src="data:image/png;base64,${data.chart}" alt="Chart"/>`;
+}
+
+// ── RENDER METRICS ────────────────────────────────────────────
+function renderMetrics(m, ticker, label) {
+  document.getElementById('metrics-card').style.display = 'block';
+  document.getElementById('ticker-badge').textContent = `${ticker} · ${label}`;
+  const alpha = (m.total_return - m.market_return).toFixed(2);
+  const rows = [
+    {l:'Strategy Return', v:`${m.total_return>=0?'+':''}${m.total_return}%`, c: m.total_return>=0?'pos':'neg'},
+    {l:'Buy & Hold',      v:`${m.market_return>=0?'+':''}${m.market_return}%`, c: m.market_return>=0?'pos':'neg'},
+    {l:'Alpha',           v:`${alpha>=0?'+':''}${alpha}%`, c: alpha>=0?'pos':'neg'},
+    {l:'CAGR',            v:`${m.cagr}%`, c: m.cagr>=0?'pos':'neg'},
+    {l:'Sharpe Ratio',    v:`${m.sharpe_ratio}`, c: m.sharpe_ratio>=1?'pos':m.sharpe_ratio>=0?'neu':'neg'},
+    {l:'Max Drawdown',    v:`${m.max_drawdown}%`, c:'neg'},
+    {l:'Volatility',      v:`${m.volatility}%`, c:'neu'},
+    {l:'Win Rate',        v:`${m.win_rate}%`, c: m.win_rate>=50?'pos':'neg'},
+    {l:'Total Trades',    v:`${m.n_trades}`, c:'neu'},
+    {l:'Calmar Ratio',    v:`${m.calmar_ratio}`, c: m.calmar_ratio>=0.5?'pos':'neu'},
+  ];
+  document.getElementById('metrics-grid').innerHTML = rows.map(r=>
+    `<div class="metric-cell animate-in"><div class="metric-label">${r.l}</div><div class="metric-value ${r.c}">${r.v}</div></div>`
+  ).join('');
+  document.getElementById('optim-btn').style.display = 'flex';
+}
+
+// ── RENDER TRADES ─────────────────────────────────────────────
+function renderTrades(trades) {
+  const card = document.getElementById('trades-card');
+  if (!trades?.length) { card.style.display='none'; return; }
+  card.style.display = 'block';
+  document.getElementById('trades-count').textContent = `Last ${trades.length} trades`;
+  document.getElementById('trade-body').innerHTML = trades.map(t=>
+    `<tr>
+      <td style="color:var(--gray)">${t.trade}</td>
+      <td>${t.buy_date}</td><td>$${t.buy_price}</td>
+      <td>${t.sell_date}</td><td>$${t.sell_price}</td>
+      <td class="${t.pnl_pct>=0?'win':'loss'}">${t.pnl_pct>=0?'+':''}${t.pnl_pct}%</td>
+      <td class="${t.result==='WIN'?'win':'loss'}">${t.result}</td>
+    </tr>`
+  ).join('');
+}
+
+// ── FETCH AI ANALYSIS ─────────────────────────────────────────
+async function fetchAnalysis(data) {
+  const card = document.getElementById('ai-card');
+  card.style.display = 'block';
+  document.getElementById('ai-analysis').innerHTML =
+    `<div class="mini-loader"><div class="mini-ring"></div>Consulting Llama 3.3 · 70B...</div>`;
+  try {
+    const r = await fetch('/api/analyze', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({metrics:data.metrics, ticker:data.ticker,
+                            trades:data.trades, strategy_label:data.strategy_label, params:data.params})
+    });
+    const d = await r.json();
+    const html = (d.analysis||'No analysis.').split('\n\n').filter(p=>p.trim())
+      .map(p=>`<p>${p.trim()}</p>`).join('');
+    document.getElementById('ai-analysis').innerHTML = `<div class="analysis-text">${html}</div>`;
+  } catch(e) {
+    document.getElementById('ai-analysis').innerHTML =
+      `<div class="analysis-text" style="color:var(--gray)"><p>AI analysis failed: ${e.message}</p></div>`;
+  }
+}
+
+// ── AI OPTIMIZER ──────────────────────────────────────────────
+async function optimizeParams() {
+  if (!lastResult) return;
+  const btn = document.getElementById('optim-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="mini-ring" style="border-top-color:var(--yellow)"></span> Optimizing...';
+  const card = document.getElementById('optim-card');
+  card.style.display = 'block';
+  document.getElementById('optim-body').innerHTML =
+    `<div class="mini-loader"><div class="mini-ring" style="border-top-color:var(--yellow)"></div>AI analyzing parameters...</div>`;
+  try {
+    const r = await fetch('/api/optimize', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({metrics:lastResult.metrics, params:lastResult.params, ticker:lastResult.ticker})
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    let html = '';
+    if (d.suggestions?.length) {
+      html = d.suggestions.map(s=>
+        `<div class="optim-item">
+          <div class="optim-param">${s.param}</div>
+          <div class="optim-vals">${s.current} → <span>${s.suggested}</span></div>
+          <div class="optim-reason">${s.reason}</div>
+        </div>`
+      ).join('');
+      if (d.summary) html += `<p style="font-size:0.7rem;color:var(--gray);margin-top:0.75rem;padding:0 0.2rem">${d.summary}</p>`;
+    } else {
+      html = `<p style="font-size:0.75rem;color:var(--gray);padding:0.5rem">No specific suggestions — current parameters look reasonable.</p>`;
+    }
+    document.getElementById('optim-body').innerHTML = html;
+  } catch(e) {
+    document.getElementById('optim-body').innerHTML =
+      `<p style="font-size:0.73rem;color:var(--red);padding:0.5rem">Optimization failed: ${e.message}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>🔬</span> AI Optimize Parameters';
+  }
+}
+
+// ── HELPERS ───────────────────────────────────────────────────
+function setRunLoading(on) {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = on;
+  btn.innerHTML = on
+    ? '<span class="spinner"></span> Running...'
+    : '<span>▶</span> Run Backtest';
+}
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg; el.style.display = 'block';
+}
+
+// Ctrl+Enter shortcut
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key==='Enter') runBacktest();
+});
+</script>
+</body>
+</html>
