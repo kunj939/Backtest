@@ -1,5 +1,5 @@
 flask==3.0.3
-pandas==2.4.6
+pandas==3.0.3
 numpy==2.4.6
 matplotlib==3.9.0
 gunicorn==22.0.0
