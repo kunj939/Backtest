@@ -7,7 +7,9 @@ import os, sys, json, urllib.request, urllib.error
 from flask import Flask, request, jsonify, make_response
 
 # Add parent dir so backtest_engine.py is importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+# backtest_engine.py is in same folder (api/)
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 from backtest_engine import run_full_backtest
 
 # ── Flask app — Vercel finds this 'app' object ────────────────────────────────
