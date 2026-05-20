@@ -1,5 +1,5 @@
 """
-QuantEdge Backtest Engine v2.3
+QuantEdge Backtest Engine 
 Data: Yahoo Finance v8 API (direct, no library) → Stooq CSV fallback
 Both work on Vercel serverless without any API key.
 """
