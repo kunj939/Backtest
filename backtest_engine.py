@@ -135,6 +135,30 @@ def _fetch_stooq(ticker, start, end):
     return df if len(df) >= 60 else None
 
 
+def _fetch_yfinance(ticker, start, end):
+    """Legacy yfinance fetch — kept for compatibility."""
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+        raw = t.history(start=start, end=end, auto_adjust=True)
+        if raw is None or raw.empty:
+            raw = t.history(period="5y", auto_adjust=True)
+        if raw is None or raw.empty:
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        raw.columns = [c.strip().title() for c in raw.columns]
+        cols = [c for c in ['Open','High','Low','Close','Volume'] if c in raw.columns]
+        if 'Close' not in cols:
+            return None
+        df = raw[cols].copy()
+        df.dropna(subset=['Close'], inplace=True)
+        df.index = pd.to_datetime(df.index).tz_localize(None)
+        return df if len(df) >= 60 else None
+    except Exception:
+        return None
+
+
 def fetch_data(ticker, start, end=None):
     ticker = ticker.strip().upper().split()[0]
     if end is None:
@@ -161,6 +185,13 @@ def fetch_data(ticker, start, end=None):
             df = _fetch_stooq(ticker, start, end)
         except Exception as e:
             print(f"[fetch] Stooq failed: {e}")
+
+    # ── 4. yfinance last resort ──────────────────────────────────────────────
+    if df is None:
+        try:
+            df = _fetch_yfinance(ticker, start, end)
+        except Exception as e:
+            print(f"[fetch] yfinance failed: {e}")
 
     if df is None:
         raise ValueError(
