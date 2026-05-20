@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     branch: main
-    runtime: python-3.11
+    runtime: python-3.14
     buildCommand: pip install --upgrade pip setuptools wheel && pip install --prefer-binary -r requirements.txt
     startCommand: gunicorn app:app
     autoDeploy: true
