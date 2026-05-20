@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/*.py",
+      "src": "api/index.py",
       "use": "@vercel/python"
     },
     {
@@ -12,24 +12,8 @@
   ],
   "routes": [
     {
-      "src": "/api/backtest",
-      "dest": "/api/backtest.py"
-    },
-    {
-      "src": "/api/analyze",
-      "dest": "/api/analyze.py"
-    },
-    {
-      "src": "/api/optimize",
-      "dest": "/api/optimize.py"
-    },
-    {
-      "src": "/api/parse-strategy",
-      "dest": "/api/parse_strategy.py"
-    },
-    {
-      "src": "/api/status",
-      "dest": "/api/status.py"
+      "src": "/api/(.*)",
+      "dest": "/api/index.py"
     },
     {
       "src": "/(.*)",

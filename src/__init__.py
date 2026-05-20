@@ -1,1 +1,0 @@
-# QuantEdge Backtest Engine
