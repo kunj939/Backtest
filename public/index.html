@@ -559,10 +559,120 @@ async function runBacktest() {
 }
 
 // ── RENDER CHART ──────────────────────────────────────────────
+// ── RENDER CHART — zoom / pan / fullscreen ────────────────────
+let _chartZoom = { scale:1, ox:0, oy:0, dragging:false, sx:0, sy:0 };
+
 function renderChart(data) {
   document.getElementById('chart-period').textContent = `${data.start} → ${data.end}`;
-  document.getElementById('chart-container').innerHTML =
-    `<img src="data:image/png;base64,${data.chart}" alt="Chart"/>`;
+  const z = _chartZoom = { scale:1, ox:0, oy:0, dragging:false, sx:0, sy:0 };
+  const wrap = document.getElementById('chart-container');
+  wrap.innerHTML = `
+    <div id="chart-wrap" style="position:relative;width:100%;overflow:hidden;border-radius:4px;background:#0d1117;cursor:default;user-select:none;">
+      <img id="chart-img" src="data:image/png;base64,${data.chart}"
+        style="width:100%;display:block;transform-origin:0 0;will-change:transform;"
+        draggable="false"/>
+      <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;z-index:10;">
+        <button onclick="chartZoomIn()"     style="background:#161b22;border:1px solid #30363d;color:#f0f6fc;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:15px;line-height:1;">+</button>
+        <button onclick="chartZoomOut()"    style="background:#161b22;border:1px solid #30363d;color:#f0f6fc;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:15px;line-height:1;">-</button>
+        <button onclick="chartReset()"      style="background:#161b22;border:1px solid #30363d;color:#8b949e;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:10px;letter-spacing:.05em;">RESET</button>
+        <button onclick="chartFullscreen()" style="background:#161b22;border:1px solid #30363d;color:#58a6ff;border-radius:4px;padding:3px 9px;cursor:pointer;font-size:12px;">&#9974;</button>
+      </div>
+      <div style="position:absolute;bottom:5px;left:8px;font-size:9px;color:#484f58;pointer-events:none;">SCROLL to zoom &nbsp;·&nbsp; DRAG to pan</div>
+    </div>`;
+
+  const img   = document.getElementById('chart-img');
+  const wrap2 = document.getElementById('chart-wrap');
+
+  function applyT() {
+    img.style.transform = `translate(${z.ox}px,${z.oy}px) scale(${z.scale})`;
+  }
+  function clamp() {
+    const iw = wrap2.clientWidth  * z.scale;
+    const ih = (img.naturalHeight / img.naturalWidth) * wrap2.clientWidth * z.scale || iw * 0.875;
+    const cw = wrap2.clientWidth, ch = wrap2.clientHeight;
+    if (z.scale <= 1) { z.ox = 0; z.oy = 0; return; }
+    z.ox = Math.min(0, Math.max(z.ox, cw - iw));
+    z.oy = Math.min(0, Math.max(z.oy, ch - ih));
+  }
+
+  wrap2.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = wrap2.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    const ns = Math.min(8, Math.max(1, z.scale * factor));
+    z.ox = mx - (mx - z.ox) * (ns / z.scale);
+    z.oy = my - (my - z.oy) * (ns / z.scale);
+    z.scale = ns; clamp(); applyT();
+    wrap2.style.cursor = z.scale > 1 ? 'grab' : 'default';
+  }, { passive:false });
+
+  wrap2.addEventListener('mousedown', e => {
+    if (z.scale <= 1) return;
+    z.dragging = true; z.sx = e.clientX - z.ox; z.sy = e.clientY - z.oy;
+    wrap2.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', e => {
+    if (!z.dragging) return;
+    z.ox = e.clientX - z.sx; z.oy = e.clientY - z.sy;
+    clamp(); applyT();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!z.dragging) return;
+    z.dragging = false;
+    wrap2.style.cursor = z.scale > 1 ? 'grab' : 'default';
+  });
+
+  let _lDist = 0, _tPrev = {};
+  wrap2.addEventListener('touchstart', e => {
+    [...e.touches].forEach(t => _tPrev[t.identifier] = {x:t.clientX, y:t.clientY});
+    if (e.touches.length === 2) {
+      const a=e.touches[0], b=e.touches[1];
+      _lDist = Math.hypot(b.clientX-a.clientX, b.clientY-a.clientY);
+    }
+  }, { passive:true });
+  wrap2.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      const a=e.touches[0], b=e.touches[1];
+      const d = Math.hypot(b.clientX-a.clientX, b.clientY-a.clientY);
+      const factor = d / _lDist; _lDist = d;
+      const rect = wrap2.getBoundingClientRect();
+      const mx=(a.clientX+b.clientX)/2-rect.left, my=(a.clientY+b.clientY)/2-rect.top;
+      const ns = Math.min(8, Math.max(1, z.scale * factor));
+      z.ox = mx-(mx-z.ox)*(ns/z.scale); z.oy = my-(my-z.oy)*(ns/z.scale);
+      z.scale = ns; clamp(); applyT();
+    } else if (e.touches.length === 1 && z.scale > 1) {
+      const t=e.touches[0], p=_tPrev[t.identifier]||{x:t.clientX,y:t.clientY};
+      z.ox += t.clientX-p.x; z.oy += t.clientY-p.y; clamp(); applyT();
+    }
+    [...e.touches].forEach(t => _tPrev[t.identifier]={x:t.clientX,y:t.clientY});
+  }, { passive:false });
+
+  window._cz = z; window._cw = wrap2; window._ca = applyT; window._cc = clamp;
+}
+
+function chartZoomIn() {
+  const z=window._cz,w=window._cw; if(!z) return;
+  const cx=w.clientWidth/2, cy=w.clientHeight/2, ns=Math.min(8,z.scale*1.4);
+  z.ox=cx-(cx-z.ox)*(ns/z.scale); z.oy=cy-(cy-z.oy)*(ns/z.scale);
+  z.scale=ns; window._cc(); window._ca(); w.style.cursor='grab';
+}
+function chartZoomOut() {
+  const z=window._cz,w=window._cw; if(!z) return;
+  const cx=w.clientWidth/2, cy=w.clientHeight/2, ns=Math.max(1,z.scale*0.7);
+  z.ox=cx-(cx-z.ox)*(ns/z.scale); z.oy=cy-(cy-z.oy)*(ns/z.scale);
+  z.scale=ns; window._cc(); window._ca(); w.style.cursor=z.scale>1?'grab':'default';
+}
+function chartReset() {
+  const z=window._cz,w=window._cw; if(!z) return;
+  z.scale=1; z.ox=0; z.oy=0; window._ca(); w.style.cursor='default';
+}
+function chartFullscreen() {
+  const img=document.getElementById('chart-img'); if(!img) return;
+  const win=window.open('','_blank');
+  win.document.write(`<!DOCTYPE html><html><body style="margin:0;background:#0d1117"><img src="${img.src}" style="width:100%;display:block"></body></html>`);
+  win.document.close();
 }
 
 // ── RENDER METRICS ────────────────────────────────────────────
