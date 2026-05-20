@@ -422,17 +422,20 @@ async function parseStrategy() {
   try {
     const r = await fetch('/api/parse-strategy', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({description: desc})
+      body: JSON.stringify({strategy: desc})
     });
     const d = await r.json();
-    if (d.error) { alert('Parse error: ' + d.error); return; }
-    parsedParams = d;
+    if (!d.success || d.error) { alert('Parse error: ' + (d.error || 'Unknown error')); return; }
+    const strat = d.strategy || {};
+    parsedParams = {
+      strategy_name: 'Custom Strategy',
+      custom_rules: { buy: strat.buy || 'ma_crossover_up', sell: strat.sell || 'ma_crossover_down' }
+    };
     const preview = document.getElementById('parse-preview');
     preview.style.display = 'block';
     document.getElementById('parse-summary').innerHTML =
-      `<span style="color:var(--green)">✓ Parsed:</span> <span style="color:var(--white)">${d.strategy_name || d.strategy}</span>` +
-      (d.custom_rules ? ` · Buy: <span style="color:var(--blue)">${d.custom_rules.buy}</span> / Sell: <span style="color:var(--red)">${d.custom_rules.sell}</span>` : '');
-    document.getElementById('parse-reasoning').textContent = d.reasoning || '';
+      `<span style="color:var(--green)">✓ Parsed:</span> Buy: <span style="color:var(--blue)">${strat.buy || 'ma_crossover_up'}</span> / Sell: <span style="color:var(--red)">${strat.sell || 'ma_crossover_down'}</span>`;
+    document.getElementById('parse-reasoning').textContent = strat.reasoning || strat.risk_management || '';
   } catch(e) {
     alert('Failed to parse: ' + e.message);
   } finally {
@@ -464,7 +467,8 @@ async function runBacktest() {
   try {
     const res = await fetch('/api/backtest', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ticker, start, capital, strategy: currentStrategy, params})
+      body: JSON.stringify({ticker, start, capital, strategy: currentStrategy, ...params,
+                            custom_rules: params.custom_rules || undefined})
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'Backtest failed');
