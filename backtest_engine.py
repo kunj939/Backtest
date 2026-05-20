@@ -21,31 +21,55 @@ def fetch_data(ticker, start, end=None):
         end = datetime.today().strftime('%Y-%m-%d')
 
     raw = None
-    # Primary: explicit date range (works on Vercel)
+
+    # Attempt 1: new yfinance API with group_by='column' to avoid MultiIndex
     try:
-        raw = yf.download(ticker, start=start, end=end,
-                          progress=False, auto_adjust=True, threads=False)
+        raw = yf.download(
+            ticker, start=start, end=end,
+            progress=False, auto_adjust=True,
+            threads=False, group_by='column'
+        )
     except Exception:
         pass
 
-    # Fallback: period-based
+    # Attempt 2: Ticker object .history() — most reliable across yfinance versions
     if raw is None or raw.empty:
         try:
-            raw = yf.download(ticker, period="5y",
-                              progress=False, auto_adjust=True, threads=False)
+            t = yf.Ticker(ticker)
+            raw = t.history(start=start, end=end, auto_adjust=True)
+            # history() returns clean single-level columns
+        except Exception:
+            pass
+
+    # Attempt 3: period fallback
+    if raw is None or raw.empty:
+        try:
+            t = yf.Ticker(ticker)
+            raw = t.history(period="5y", auto_adjust=True)
         except Exception:
             pass
 
     if raw is None or raw.empty:
         raise ValueError(f"No data found for '{ticker}'. Check the ticker symbol.")
 
+    # Flatten MultiIndex columns if present (yfinance >= 0.2.40 quirk)
     if isinstance(raw.columns, pd.MultiIndex):
-        raw.columns = raw.columns.get_level_values(0)
+        # Try to select the specific ticker level first
+        try:
+            raw = raw.xs(ticker, axis=1, level=1)
+        except Exception:
+            raw.columns = raw.columns.get_level_values(0)
+
+    # Normalise column names (history() uses 'Close', download() same but check)
+    raw.columns = [c.strip().title() for c in raw.columns]
 
     cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in raw.columns]
+    if 'Close' not in cols:
+        raise ValueError(f"Price data missing for '{ticker}'. Columns found: {list(raw.columns)}")
+
     df = raw[cols].copy()
-    df.dropna(inplace=True)
-    df.index = pd.to_datetime(df.index)
+    df.dropna(subset=['Close'], inplace=True)
+    df.index = pd.to_datetime(df.index).tz_localize(None)  # strip timezone
 
     if len(df) < 60:
         raise ValueError(f"Not enough data for '{ticker}' ({len(df)} rows). Try a longer date range.")
