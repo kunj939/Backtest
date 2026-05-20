@@ -218,7 +218,7 @@ def fetch_data(ticker, start, end=None):
     except Exception as e:
         err_msg = f"Yahoo query1: {str(e)}"
         errors.append(err_msg)
-            print(f"[fetch] [FAIL] {err_msg}")
+        print(f"[fetch] [FAIL] {err_msg}")
     if df is None:
         try:
             print(f"[fetch] Attempting Yahoo Finance (query2 fallback) for {ticker}...")
