@@ -449,10 +449,20 @@ def generate_chart(df, ticker, metrics, label):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def run_full_backtest(ticker='AAPL', start='2020-01-01', end=None,
-                      strategy='ma_crossover', params=None, capital=100_000.0):
+                      strategy='ma_crossover', params=None, capital=100_000.0,
+                      ohlcv=None):
     if params is None:
         params = {}
-    df      = fetch_data(ticker, start, end)
+    if ohlcv and len(ohlcv) >= 60:
+        import pandas as pd
+        df = pd.DataFrame(ohlcv)
+        df.index = pd.to_datetime(df['date'])
+        df.index.name = 'Date'
+        df = df.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
+        keep = [c for c in ['Open','High','Low','Close','Volume'] if c in df.columns]
+        df = df[keep].apply(pd.to_numeric, errors='coerce').dropna(subset=['Close']).sort_index()
+    else:
+        df = fetch_data(ticker, start, end)
     df      = add_indicators(df, params)
     df      = STRATEGY_MAP.get(strategy, strat_ma)(df, params)
     df      = run_backtest(df, capital)

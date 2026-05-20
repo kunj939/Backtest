@@ -71,9 +71,11 @@ def backtest():
         if capital < 1000:
             return cors(jsonify({"error": "Minimum capital is $1,000"})), 400
 
+        ohlcv = data.get('ohlcv')  # pre-fetched from frontend
         result = run_full_backtest(
             ticker=ticker, start=start, capital=capital,
-            strategy=strategy, params=params
+            strategy=strategy, params=params,
+            ohlcv=ohlcv
         )
         return cors(jsonify(result))
 

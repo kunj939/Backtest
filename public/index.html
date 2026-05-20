@@ -446,11 +446,73 @@ async function parseStrategy() {
 }
 
 // ── RUN BACKTEST ──────────────────────────────────────────────
+// ── FETCH STOCK DATA FROM YAHOO FINANCE (frontend, no backend needed) ─────
+async function fetchStockData(ticker, startDate) {
+  const period1 = Math.floor(new Date(startDate).getTime() / 1000);
+  const period2 = Math.floor(Date.now() / 1000);
+
+  // Try direct Yahoo Finance v8 first
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${period1}&period2=${period2}&interval=1d&includeAdjustedClose=true`;
+
+  // Use allorigins.win as CORS proxy (free, reliable)
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`;
+
+  let data = null;
+
+  // Attempt 1: direct (works if CORS allowed)
+  try {
+    const r = await fetch(yahooUrl, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) data = await r.json();
+  } catch(e) {}
+
+  // Attempt 2: CORS proxy
+  if (!data) {
+    try {
+      const r = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+      if (r.ok) data = await r.json();
+    } catch(e) {}
+  }
+
+  // Attempt 3: query2 mirror via proxy
+  if (!data) {
+    const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${period1}&period2=${period2}&interval=1d`;
+    const proxy2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(url2)}`;
+    try {
+      const r = await fetch(proxy2, { signal: AbortSignal.timeout(15000) });
+      if (r.ok) data = await r.json();
+    } catch(e) {}
+  }
+
+  if (!data) throw new Error(`Could not fetch data for '${ticker}'. Check your internet connection.`);
+
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error(`No data found for '${ticker}'. Check the ticker symbol.`);
+
+  const timestamps  = result.timestamp;
+  const quote       = result.indicators.quote[0];
+  const adjClose    = result.indicators?.adjclose?.[0]?.adjclose || quote.close;
+
+  // Build rows array: [{date, open, high, low, close, volume}, ...]
+  const rows = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (adjClose[i] == null) continue;
+    rows.push({
+      date:   new Date(timestamps[i] * 1000).toISOString().split('T')[0],
+      open:   quote.open[i],
+      high:   quote.high[i],
+      low:    quote.low[i],
+      close:  adjClose[i],
+      volume: quote.volume[i],
+    });
+  }
+  if (rows.length < 60) throw new Error(`Not enough data for '${ticker}' (${rows.length} rows). Try a longer date range.`);
+  return rows;
+}
+
 async function runBacktest() {
   document.getElementById('error-msg').style.display = 'none';
   setRunLoading(true);
   const container = document.getElementById('chart-container');
-  container.innerHTML = `<div class="loader"><div class="loader-ring"></div><span class="loader-text">Fetching data · Computing signals...</span></div>`;
 
   const ticker  = document.getElementById('ticker').value;
   const start   = document.getElementById('start').value;
@@ -465,10 +527,22 @@ async function runBacktest() {
   }
 
   try {
+    // Step 1: Fetch OHLCV data in browser (bypasses any server-side network issues)
+    container.innerHTML = `<div class="loader"><div class="loader-ring"></div><span class="loader-text">Fetching ${ticker} price data...</span></div>`;
+    const ohlcv = await fetchStockData(ticker, start);
+
+    // Step 2: Send raw data to backend for calculation
+    container.innerHTML = `<div class="loader"><div class="loader-ring"></div><span class="loader-text">Computing signals & metrics...</span></div>`;
     const res = await fetch('/api/backtest', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ticker, start, capital, strategy: currentStrategy, ...params,
-                            custom_rules: params.custom_rules || undefined})
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        ticker, start, capital,
+        strategy: currentStrategy,
+        ...params,
+        custom_rules: params.custom_rules || undefined,
+        ohlcv  // pass raw data — backend uses this instead of fetching
+      })
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'Backtest failed');
