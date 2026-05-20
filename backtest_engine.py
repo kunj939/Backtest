@@ -454,17 +454,17 @@ def generate_chart(df, ticker, metrics, label):
         'axes.edgecolor': '#30363d', 'grid.color': '#21262d', 'grid.linewidth': 0.5,
     })
 
-    fig = plt.figure(figsize=(16, 14), facecolor=BG)
-    gs  = GridSpec(3, 1, figure=fig, hspace=0.08, height_ratios=[3, 2, 1.5])
+    fig = plt.figure(figsize=(18, 15), facecolor=BG)
+    gs  = GridSpec(3, 1, figure=fig, hspace=0.08, height_ratios=[3, 2, 1.4])
     ax1, ax2, ax3 = fig.add_subplot(gs[0]), fig.add_subplot(gs[1]), fig.add_subplot(gs[2])
 
-    ax1.plot(df.index, df['Close'],    color=WHITE,  lw=1.2, alpha=0.9, label='Close')
-    ax1.plot(df.index, df['MA_Short'], color=BLUE,   lw=1.5, ls='--',   label='MA-Short')
-    ax1.plot(df.index, df['MA_Long'],  color=YELLOW, lw=1.5, ls='--',   label='MA-Long')
+    ax1.plot(df.index, df['Close'],    color=WHITE,  lw=2.0, alpha=0.95, label='Close')
+    ax1.plot(df.index, df['MA_Short'], color=BLUE,   lw=2.0, ls='--',   label='MA-Short')
+    ax1.plot(df.index, df['MA_Long'],  color=YELLOW, lw=2.0, ls='--',   label='MA-Long')
     buys  = df[df['Signal'] == 1]
     sells = df[df['Signal'] == -1]
-    ax1.scatter(buys.index,  buys['Close'],  marker='^', color=GREEN, s=100, zorder=5, label=f'Buy ({len(buys)})')
-    ax1.scatter(sells.index, sells['Close'], marker='v', color=RED,   s=100, zorder=5, label=f'Sell ({len(sells)})')
+    ax1.scatter(buys.index,  buys['Close'],  marker='^', color=GREEN, s=140, zorder=6, label=f'Buy ({len(buys)})')
+    ax1.scatter(sells.index, sells['Close'], marker='v', color=RED,   s=140, zorder=6, label=f'Sell ({len(sells)})')
     ax1.fill_between(df.index, df['Close'].min(), df['Close'].max(),
                      where=(df['Position'] == 1), alpha=0.05, color=GREEN)
     ax1.set_title(f'  {ticker} | {label}  ·  QuantEdge v2.4',
@@ -479,8 +479,8 @@ def generate_chart(df, ticker, metrics, label):
     ax1.annotate(ann, xy=(0.01, 0.02), xycoords='axes fraction', fontsize=8.5, color=GRAY,
                  bbox=dict(boxstyle='round,pad=0.4', facecolor='#0d1117', alpha=0.7))
 
-    ax2.plot(df.index, df['Strategy_Cumulative'], color=GREEN,  lw=2,   label='Strategy')
-    ax2.plot(df.index, df['Market_Cumulative'],   color=ACCENT, lw=1.5, label='Buy & Hold', alpha=0.7)
+    ax2.plot(df.index, df['Strategy_Cumulative'], color=GREEN,  lw=2.4,   label='Strategy')
+    ax2.plot(df.index, df['Market_Cumulative'],   color=ACCENT, lw=2.0, label='Buy & Hold', alpha=0.85)
     ax2.axhline(y=metrics['initial_capital'], color=GRAY, ls=':', lw=0.8, alpha=0.5)
     ax2.fill_between(df.index, df['Strategy_Cumulative'], df['Market_Cumulative'],
         where=(df['Strategy_Cumulative'] >= df['Market_Cumulative']),
@@ -511,7 +511,7 @@ def generate_chart(df, ticker, metrics, label):
              ha='right', va='bottom', fontsize=7, color='#484f58', style='italic')
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor=BG)
+    plt.savefig(buf, format='png', dpi=220, bbox_inches='tight', facecolor=BG)
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')

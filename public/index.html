@@ -151,7 +151,7 @@ select option{background:var(--panel2)}
 <section class="hero">
   <div class="hero-tag">Agentic Quant Research Platform</div>
   <h1>Backtest any <span>trading strategy</span><br/>with AI-powered analysis.</h1>
-  <p>Multi-strategy engine · Natural language strategy builder · Groq LLM agents · Institutional metrics</p>
+  <p>Multi-strategy engine · Natural language strategy builder · LLM agents · Institutional metrics</p>
 </section>
 
 <div class="main">
@@ -331,10 +331,10 @@ select option{background:var(--panel2)}
     <div class="card-header"><span class="card-title">Future Extensions</span><span style="font-size:0.62rem;color:var(--gray)">Research Roadmap</span></div>
     <div class="card-body">
       <div class="roadmap-grid">
-        <div class="roadmap-item"><div class="roadmap-title">🤖 ML Signal Layer</div><div class="roadmap-desc">XGBoost / LSTM classifier trained on OHLCV + sector momentum features to replace heuristic signals.</div></div>
-        <div class="roadmap-item"><div class="roadmap-title">🎮 RL Agent</div><div class="roadmap-desc">PPO/SAC agent learning position sizing and entry/exit timing with Sharpe-scaled reward function.</div></div>
-        <div class="roadmap-item"><div class="roadmap-title">📊 Portfolio Optimizer</div><div class="roadmap-desc">Multi-strategy allocation via Markowitz MPT or Risk Parity with walk-forward optimization.</div></div>
-        <div class="roadmap-item"><div class="roadmap-title">⚡ Live Execution</div><div class="roadmap-desc">Alpaca / IBKR API integration with WebSocket feeds, Telegram alerts, and drawdown circuit breakers.</div></div>
+        <div class="roadmap-item"><div class="roadmap-title">🤖 ML Signal Engine</div><div class="roadmap-desc">Transformer-fused time-series and momentum features for adaptive entry/exit signals beyond static moving averages.</div></div>
+        <div class="roadmap-item"><div class="roadmap-title">🎮 Reinforcement Trader</div><div class="roadmap-desc">Deep RL agent with dynamic position sizing, drawdown-aware reward shaping, and execution-aware trade timing.</div></div>
+        <div class="roadmap-item"><div class="roadmap-title">📊 Portfolio Intelligence</div><div class="roadmap-desc">Regime-aware allocation using CVaR, factor risk budgeting, and walk-forward optimization for multi-asset strategies.</div></div>
+        <div class="roadmap-item"><div class="roadmap-title">⚡ Live Execution Hub</div><div class="roadmap-desc">Broker integration with Alpaca/IBKR, WebSocket fills, adaptive routing, and automated risk controls for real-time trading.</div></div>
       </div>
     </div>
   </div>
@@ -351,22 +351,26 @@ let currentStrategy = 'ma_crossover';
 let lastResult      = null;
 let parsedParams    = null;
 
-// Check Groq status on load
+// Check AI status on load
 async function checkStatus() {
   try {
     const r = await fetch('/api/status');
     const d = await r.json();
     const dot   = document.getElementById('groq-dot');
     const label = document.getElementById('groq-label');
-    if (d.groq_connected) {
+    if (d.ai_key_loaded) {
       dot.classList.add('on');
-      label.textContent = 'Groq AI · Connected';
+      label.textContent = `AI · ${d.ai_provider || 'Connected'}`;
       label.style.color = 'var(--green)';
     } else {
-      label.textContent = 'Groq AI · Add key in .env';
+      label.textContent = 'AI · Add key in Render env vars';
       label.style.color = 'var(--yellow)';
     }
-  } catch(e) {}
+  } catch(e) {
+    const label = document.getElementById('groq-label');
+    label.textContent = 'AI · Status unavailable';
+    label.style.color = 'var(--yellow)';
+  }
 }
 checkStatus();
 

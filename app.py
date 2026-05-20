@@ -31,7 +31,19 @@ from backtest_engine import run_full_backtest
 # =========================
 app = Flask(__name__, static_folder='public')
 
-LLM_MODEL = "google/gemini-2.0-flash-exp:free"
+OPENROUTER_MODEL = "gpt-4o-mini"
+OPENAI_MODEL = "gpt-4o-mini"
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+
+def get_ai_config():
+    if os.environ.get('OPENROUTER_API_KEY'):
+        return 'OpenRouter', os.environ.get('OPENROUTER_API_KEY'), OPENROUTER_MODEL
+    if os.environ.get('OPENAI_API_KEY'):
+        return 'OpenAI', os.environ.get('OPENAI_API_KEY'), OPENAI_MODEL
+    if os.environ.get('GROQ_API_KEY'):
+        return 'Groq', os.environ.get('GROQ_API_KEY'), GROQ_MODEL
+    return None, None, None
 
 
 # =========================
@@ -54,12 +66,13 @@ def home():
 
 @app.route('/api/status')
 def status():
-    key = os.environ.get('OPENROUTER_API_KEY', '')
+    provider, key, model = get_ai_config()
     return _cors(jsonify({
-        "status":          "running",
-        "server":          "QuantEdge",
-        "ai_key_loaded": bool(key),
-        "model":           LLM_MODEL
+        "status":         "running",
+        "server":         "QuantEdge",
+        "ai_key_loaded":  bool(key),
+        "ai_provider":    provider or "None",
+        "model":          model or "none"
     }))
 
 
@@ -115,10 +128,10 @@ def backtest():
 # =========================
 # GROQ HELPER
 # =========================
-def groq_chat(prompt, system=None, max_tokens=800, temperature=0.3):
-    key = os.environ.get('OPENROUTER_API_KEY', '')
+def ai_chat(prompt, system=None, max_tokens=800, temperature=0.3):
+    provider, key, model = get_ai_config()
     if not key:
-        raise Exception("Missing OPENROUTER_API_KEY. Add it in Render Environment Variables.")
+        raise Exception("Missing AI key. Set OPENROUTER_API_KEY, OPENAI_API_KEY, or GROQ_API_KEY.")
 
     messages = []
     if system:
@@ -126,19 +139,25 @@ def groq_chat(prompt, system=None, max_tokens=800, temperature=0.3):
     messages.append({"role": "user", "content": prompt})
 
     payload = json.dumps({
-        "model":       LLM_MODEL,
+        "model":       model,
         "messages":    messages,
         "temperature": temperature,
         "max_tokens":  max_tokens,
     }).encode("utf-8")
 
+    if provider == 'OpenRouter':
+        endpoint = "https://openrouter.ai/api/v1/chat/completions"
+    elif provider == 'OpenAI':
+        endpoint = "https://api.openai.com/v1/chat/completions"
+    else:
+        endpoint = "https://api.groq.com/openai/v1/chat/completions"
+
     req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
+        endpoint,
         data    = payload,
         headers = {
             "Authorization": f"Bearer {key}",
-            "Content-Type":  "application/json",
-            "HTTP-Referer":  "https://backtest-mriz.onrender.com",
+            "Content-Type":  "application/json"
         },
         method  = "POST"
     )
@@ -191,7 +210,7 @@ Write exactly 4 professional paragraphs covering:
 3. Signal quality and trade frequency
 4. Key weakness and one concrete improvement suggestion"""
 
-        analysis = groq_chat(prompt=prompt, system=system, max_tokens=800, temperature=0.3)
+        analysis = ai_chat(prompt=prompt, system=system, max_tokens=800, temperature=0.3)
         return _cors(jsonify({"analysis": analysis}))
 
     except Exception as e:
@@ -244,7 +263,7 @@ Return ONLY valid JSON (no markdown, no explanation outside JSON):
   "summary": "one sentence overall recommendation"
 }}"""
 
-        content = groq_chat(prompt=prompt, max_tokens=500, temperature=0.2)
+        content = ai_chat(prompt=prompt, max_tokens=500, temperature=0.2)
 
         # Strip markdown fences if present
         content = content.strip()
@@ -303,7 +322,7 @@ Return ONLY valid JSON (no markdown fences):
 Valid buy values:  ma_crossover_up, rsi_oversold, macd_crossover_up, bb_lower_touch, ma_and_rsi
 Valid sell values: ma_crossover_down, rsi_overbought, macd_crossover_down, bb_upper_touch, ma_or_rsi"""
 
-        content = groq_chat(prompt=prompt, max_tokens=300, temperature=0.1)
+        content = ai_chat(prompt=prompt, max_tokens=300, temperature=0.1)
         content = content.strip()
         if content.startswith("```"):
             content = content.replace("```json", "").replace("```", "").strip()
@@ -324,9 +343,10 @@ Valid sell values: ma_crossover_down, rsi_overbought, macd_crossover_down, bb_up
 # MAIN
 # =========================
 if __name__ == '__main__':
-    key = os.environ.get('OPENROUTER_API_KEY', '')
+    provider, key, model = get_ai_config()
     print("\n QuantEdge v2.1")
-    print(f" OPENROUTER_API_KEY: {'LOADED ✓' if key else 'NOT FOUND — AI features disabled'}")
-    print(f" MODEL: {LLM_MODEL}")
+    print(f" AI provider: {provider or 'none'}")
+    print(f" AI key: {'LOADED ✓' if key else 'NOT FOUND — AI features disabled'}")
+    print(f" Model: {model or 'none'}")
     print(" OPEN: http://localhost:5000\n")
     app.run(debug=True, host='0.0.0.0', port=5000)
