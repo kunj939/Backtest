@@ -31,7 +31,7 @@ from backtest_engine import run_full_backtest
 # =========================
 app = Flask(__name__, static_folder='public')
 
-LLM_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+LLM_MODEL = "google/gemini-2.0-flash-exp:free"
 
 
 # =========================
@@ -54,11 +54,11 @@ def home():
 
 @app.route('/api/status')
 def status():
-    key = os.environ.get('GROQ_API_KEY', '')
+    key = os.environ.get('OPENROUTER_API_KEY', '')
     return _cors(jsonify({
         "status":          "running",
         "server":          "QuantEdge",
-        "groq_key_loaded": bool(key),
+        "ai_key_loaded": bool(key),
         "model":           LLM_MODEL
     }))
 
@@ -116,9 +116,9 @@ def backtest():
 # GROQ HELPER
 # =========================
 def groq_chat(prompt, system=None, max_tokens=800, temperature=0.3):
-    key = os.environ.get('GROQ_API_KEY', '')
+    key = os.environ.get('OPENROUTER_API_KEY', '')
     if not key:
-        raise Exception("Missing GROQ_API_KEY. Add it to .env or Vercel environment variables.")
+        raise Exception("Missing OPENROUTER_API_KEY. Add it in Render Environment Variables.")
 
     messages = []
     if system:
@@ -133,11 +133,12 @@ def groq_chat(prompt, system=None, max_tokens=800, temperature=0.3):
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions",
+        "https://openrouter.ai/api/v1/chat/completions",
         data    = payload,
         headers = {
             "Authorization": f"Bearer {key}",
-            "Content-Type":  "application/json"
+            "Content-Type":  "application/json",
+            "HTTP-Referer":  "https://backtest-mriz.onrender.com",
         },
         method  = "POST"
     )
@@ -323,9 +324,9 @@ Valid sell values: ma_crossover_down, rsi_overbought, macd_crossover_down, bb_up
 # MAIN
 # =========================
 if __name__ == '__main__':
-    key = os.environ.get('GROQ_API_KEY', '')
+    key = os.environ.get('OPENROUTER_API_KEY', '')
     print("\n QuantEdge v2.1")
-    print(f" GROQ_API_KEY: {'LOADED ✓' if key else 'NOT FOUND — AI features disabled'}")
+    print(f" OPENROUTER_API_KEY: {'LOADED ✓' if key else 'NOT FOUND — AI features disabled'}")
     print(f" MODEL: {LLM_MODEL}")
     print(" OPEN: http://localhost:5000\n")
     app.run(debug=True, host='0.0.0.0', port=5000)
