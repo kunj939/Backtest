@@ -102,6 +102,7 @@ def backtest():
             capital  = capital,
             strategy = strategy,
             params   = params,
+            ohlcv    = data.get('ohlcv')
         )
 
         return _cors(jsonify(result))

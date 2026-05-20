@@ -213,25 +213,23 @@ def fetch_data(ticker, start, end=None):
         print(f"[fetch] Attempting Yahoo Finance (query1) for {ticker}...")
         df = _fetch_yahoo_v8(ticker, start, end)
         if df is not None:
-            print(f"[fetch] ✓ Yahoo query1 success ({len(df)} rows)")
+            print(f"[fetch] [OK] Yahoo query1 success ({len(df)} rows)")
             return df
     except Exception as e:
         err_msg = f"Yahoo query1: {str(e)}"
         errors.append(err_msg)
-        print(f"[fetch] ✗ {err_msg}")
-
-    # ── 2. Yahoo Finance v8 JSON API (query2 mirror) ─────────────────────────
+            print(f"[fetch] [FAIL] {err_msg}")
     if df is None:
         try:
             print(f"[fetch] Attempting Yahoo Finance (query2 fallback) for {ticker}...")
             df = _fetch_yahoo_v8_fallback(ticker, start, end)
             if df is not None:
-                print(f"[fetch] ✓ Yahoo query2 success ({len(df)} rows)")
+                print(f"[fetch] [OK] Yahoo query2 success ({len(df)} rows)")
                 return df
         except Exception as e:
             err_msg = f"Yahoo query2: {str(e)}"
             errors.append(err_msg)
-            print(f"[fetch] ✗ {err_msg}")
+            print(f"[fetch] [FAIL] {err_msg}")
 
     # ── 3. Stooq CSV ─────────────────────────────────────────────────────────
     if df is None:
@@ -239,12 +237,12 @@ def fetch_data(ticker, start, end=None):
             print(f"[fetch] Attempting Stooq CSV for {ticker}...")
             df = _fetch_stooq(ticker, start, end)
             if df is not None:
-                print(f"[fetch] ✓ Stooq success ({len(df)} rows)")
+                print(f"[fetch] [OK] Stooq success ({len(df)} rows)")
                 return df
         except Exception as e:
             err_msg = f"Stooq: {str(e)}"
             errors.append(err_msg)
-            print(f"[fetch] ✗ {err_msg}")
+            print(f"[fetch] [FAIL] {err_msg}")
 
     # ── 4. yfinance last resort ──────────────────────────────────────────────
     if df is None:
@@ -252,12 +250,12 @@ def fetch_data(ticker, start, end=None):
             print(f"[fetch] Attempting yfinance for {ticker}...")
             df = _fetch_yfinance(ticker, start, end)
             if df is not None:
-                print(f"[fetch] ✓ yfinance success ({len(df)} rows)")
+                print(f"[fetch] [OK] yfinance success ({len(df)} rows)")
                 return df
         except Exception as e:
             err_msg = f"yfinance: {str(e)}"
             errors.append(err_msg)
-            print(f"[fetch] ✗ {err_msg}")
+            print(f"[fetch] [FAIL] {err_msg}")
 
     if df is None:
         error_details = " | ".join(errors) if errors else "Unknown error"
