@@ -1,48 +1,70 @@
 # QuantEdge v2.1
 
-AI-powered trading strategy backtester with multi-strategy support and LLM analysis.
+AI-powered trading strategy backtester with Flask backend and Render deployment support.
 
 ## Project Structure
 
 ```
-quantedge/
-├── api/                    ← Vercel serverless functions
-│   ├── backtest.py         ← POST /api/backtest
-│   ├── analyze.py          ← POST /api/analyze
-│   ├── optimize.py         ← POST /api/optimize
-│   ├── parse_strategy.py   ← POST /api/parse-strategy
-│   └── status.py           ← GET  /api/status
+.
+├── api/
+│   ├── backtest_engine.py    ← Vercel-compatible API helper
+│   └── index.py             ← Vercel Flask entrypoint for /api/* routes
 ├── public/
-│   └── index.html          ← Frontend
-├── backtest_engine.py      ← Core backtest logic (shared)
-├── app.py                  ← Flask server (local dev only)
+│   └── index.html           ← Frontend UI
+├── app.py                   ← Flask web app entrypoint for local/Render
+├── backtest_engine.py       ← Core backtest logic for app.py
 ├── requirements.txt
-├── vercel.json
-└── .env.example
+├── runtime.txt
+├── render.yaml              ← Render deployment manifest
+├── README.md
+└── .gitignore
 ```
 
-## Vercel Deployment
+## Render Deployment
 
-### 1. Deploy to Vercel
+### 1. Push your code to GitHub
+
+If this repository is not yet on GitHub, add the remote and push:
 
 ```bash
-npm i -g vercel
-vercel --prod
+git add .
+git commit -m "Add Render deployment manifest and docs"
+git push origin main
 ```
 
-### 2. Add Environment Variable
+### 2. Connect to Render
 
-In Vercel Dashboard → Your Project → Settings → Environment Variables:
+1. Go to https://dashboard.render.com.
+2. Create a new **Web Service**.
+3. Connect your GitHub account and select this repository.
+4. Choose branch `main`.
+5. Set the environment to **Python**.
+6. Use the default build command or set:
+
+```bash
+pip install -r requirements.txt
+```
+
+7. Set the start command:
+
+```bash
+gunicorn app:app
+```
+
+8. Add the required environment variable:
 
 ```
-GROQ_API_KEY = your_key_here
+GROQ_API_KEY = your_api_key_here
 ```
 
-Get a **free** Groq API key at: https://console.groq.com
+9. Deploy.
 
-### 3. Done!
+> If Render detects `render.yaml`, it will use the service settings from that file automatically.
 
-All API endpoints will be live at `https://your-project.vercel.app/api/*`
+### 3. Access your app
+
+After deployment, your app will be available at the Render URL shown in the dashboard.
+The API endpoints will be available at `/api/*` and the frontend will load from the root URL.
 
 ---
 
@@ -56,13 +78,21 @@ python app.py
 # Open http://localhost:5000
 ```
 
+## Helpful Tests
+
+Run these to verify the backtest logic before pushing:
+
+```bash
+python test_backtest.py
+python test_api_call.py
+```
+
 ---
 
 ## Fixes in v2.1
 
-- **"No data for AAPL" fix**: `yfinance` now uses proper `start`/`end` date params instead of `period=` which fails on Vercel
-- **Vercel structure fix**: API functions moved to `/api/` folder as required by Vercel
+- **Render support**: Added `render.yaml` and updated deployment docs
 - **AI analyze fix**: Correct prompt and response format
-- **AI optimize fix**: Response now returns `suggestions[]` array matching frontend expectations  
+- **AI optimize fix**: Response now returns `suggestions[]` array matching frontend expectations
 - **Parse-strategy fix**: Correct request/response field names
-- **`requirements.txt`**: Added so Vercel installs Python dependencies
+- **`requirements.txt`**: Added so Python dependencies install cleanly
