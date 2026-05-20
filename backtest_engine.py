@@ -9,6 +9,7 @@ import urllib.request
 import urllib.parse
 import json
 import io as _io
+import gzip
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -26,6 +27,15 @@ def _dt_to_ts(date_str):
     return int(datetime.strptime(date_str, '%Y-%m-%d').timestamp())
 
 
+def _decompress_response(data, encoding):
+    """Decompress response data based on Content-Encoding header."""
+    if encoding == 'gzip':
+        return gzip.decompress(data)
+    elif encoding == 'deflate':
+        return _io.BytesIO(data).read()
+    return data
+
+
 def _fetch_yahoo_v8(ticker, start, end):
     """
     Yahoo Finance v8 chart API — works on Vercel, no library needed.
@@ -39,39 +49,45 @@ def _fetch_yahoo_v8(ticker, start, end):
         f"&includeAdjustedClose=true"
     )
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     }
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = json.loads(r.read().decode('utf-8'))
+    
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                content = r.read()
+                encoding = r.headers.get('Content-Encoding', '')
+                if encoding:
+                    content = _decompress_response(content, encoding)
+                data = json.loads(content.decode('utf-8'))
 
-    result = data['chart']['result']
-    if not result:
-        return None
+            result = data['chart']['result']
+            if not result:
+                return None
 
-    r0        = result[0]
-    timestamps = r0['timestamp']
-    q         = r0['indicators']['quote'][0]
-    adj_close = r0['indicators'].get('adjclose', [{}])[0].get('adjclose', q['close'])
+            r0        = result[0]
+            timestamps = r0['timestamp']
+            q         = r0['indicators']['quote'][0]
+            adj_close = r0['indicators'].get('adjclose', [{}])[0].get('adjclose', q['close'])
 
-    df = pd.DataFrame({
-        'Open':   q['open'],
-        'High':   q['high'],
-        'Low':    q['low'],
-        'Close':  adj_close,
-        'Volume': q['volume'],
-    }, index=pd.to_datetime(timestamps, unit='s').normalize())
+            df = pd.DataFrame({
+                'Open':   q['open'],
+                'High':   q['high'],
+                'Low':    q['low'],
+                'Close':  adj_close,
+                'Volume': q['volume'],
+            }, index=pd.to_datetime(timestamps, unit='s').normalize())
 
-    df.index.name = 'Date'
-    df.dropna(subset=['Close'], inplace=True)
-    df.sort_index(inplace=True)
-    return df if len(df) >= 60 else None
+            df.index.name = 'Date'
+            df.dropna(subset=['Close'], inplace=True)
+            df.sort_index(inplace=True)
+            return df if len(df) >= 60 else None
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1 + attempt)  # exponential backoff
+            else:
+                raise
 
 
 def _fetch_yahoo_v8_fallback(ticker, start, end):
@@ -84,34 +100,45 @@ def _fetch_yahoo_v8_fallback(ticker, start, end):
         f"&includeAdjustedClose=true"
     )
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     }
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = json.loads(r.read().decode('utf-8'))
+    
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                content = r.read()
+                encoding = r.headers.get('Content-Encoding', '')
+                if encoding:
+                    content = _decompress_response(content, encoding)
+                data = json.loads(content.decode('utf-8'))
 
-    result = data['chart']['result']
-    if not result:
-        return None
+            result = data['chart']['result']
+            if not result:
+                return None
 
-    r0        = result[0]
-    timestamps = r0['timestamp']
-    q         = r0['indicators']['quote'][0]
-    adj_close = r0['indicators'].get('adjclose', [{}])[0].get('adjclose', q['close'])
+            r0        = result[0]
+            timestamps = r0['timestamp']
+            q         = r0['indicators']['quote'][0]
+            adj_close = r0['indicators'].get('adjclose', [{}])[0].get('adjclose', q['close'])
 
-    df = pd.DataFrame({
-        'Open':   q['open'],
-        'High':   q['high'],
-        'Low':    q['low'],
-        'Close':  adj_close,
-        'Volume': q['volume'],
-    }, index=pd.to_datetime(timestamps, unit='s').normalize())
+            df = pd.DataFrame({
+                'Open':   q['open'],
+                'High':   q['high'],
+                'Low':    q['low'],
+                'Close':  adj_close,
+                'Volume': q['volume'],
+            }, index=pd.to_datetime(timestamps, unit='s').normalize())
 
-    df.index.name = 'Date'
-    df.dropna(subset=['Close'], inplace=True)
-    df.sort_index(inplace=True)
-    return df if len(df) >= 60 else None
+            df.index.name = 'Date'
+            df.dropna(subset=['Close'], inplace=True)
+            df.sort_index(inplace=True)
+            return df if len(df) >= 60 else None
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1 + attempt)  # exponential backoff
+            else:
+                raise
 
 
 def _fetch_stooq(ticker, start, end):
@@ -122,17 +149,31 @@ def _fetch_stooq(ticker, start, end):
     d1  = start.replace('-', '')
     d2  = end.replace('-', '')
     url = f"https://stooq.com/q/d/l/?s={sym}&d1={d1}&d2={d2}&i=d"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        content = r.read().decode('utf-8')
-    if 'No data' in content or len(content) < 100:
-        return None
-    df = pd.read_csv(_io.StringIO(content), parse_dates=['Date'], index_col='Date')
-    df.columns = [c.strip().title() for c in df.columns]
-    df.sort_index(inplace=True)
-    df.dropna(subset=['Close'], inplace=True)
-    df.index = pd.to_datetime(df.index).tz_localize(None)
-    return df if len(df) >= 60 else None
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "text/csv, text/plain, */*",
+        "Referer": "https://stooq.com/",
+    }
+    
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=25) as r:
+                content = r.read().decode('utf-8')
+            if 'No data' in content or len(content) < 100:
+                return None
+            df = pd.read_csv(_io.StringIO(content), parse_dates=['Date'], index_col='Date')
+            df.columns = [c.strip().title() for c in df.columns]
+            df.sort_index(inplace=True)
+            df.dropna(subset=['Close'], inplace=True)
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            return df if len(df) >= 60 else None
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1 + attempt)  # exponential backoff
+            else:
+                raise
 
 
 def _fetch_yfinance(ticker, start, end):
@@ -165,38 +206,65 @@ def fetch_data(ticker, start, end=None):
         end = datetime.today().strftime('%Y-%m-%d')
 
     df = None
+    errors = []
 
     # ── 1. Yahoo Finance v8 JSON API (query1) ────────────────────────────────
     try:
+        print(f"[fetch] Attempting Yahoo Finance (query1) for {ticker}...")
         df = _fetch_yahoo_v8(ticker, start, end)
+        if df is not None:
+            print(f"[fetch] ✓ Yahoo query1 success ({len(df)} rows)")
+            return df
     except Exception as e:
-        print(f"[fetch] Yahoo query1 failed: {e}")
+        err_msg = f"Yahoo query1: {str(e)}"
+        errors.append(err_msg)
+        print(f"[fetch] ✗ {err_msg}")
 
     # ── 2. Yahoo Finance v8 JSON API (query2 mirror) ─────────────────────────
     if df is None:
         try:
+            print(f"[fetch] Attempting Yahoo Finance (query2 fallback) for {ticker}...")
             df = _fetch_yahoo_v8_fallback(ticker, start, end)
+            if df is not None:
+                print(f"[fetch] ✓ Yahoo query2 success ({len(df)} rows)")
+                return df
         except Exception as e:
-            print(f"[fetch] Yahoo query2 failed: {e}")
+            err_msg = f"Yahoo query2: {str(e)}"
+            errors.append(err_msg)
+            print(f"[fetch] ✗ {err_msg}")
 
     # ── 3. Stooq CSV ─────────────────────────────────────────────────────────
     if df is None:
         try:
+            print(f"[fetch] Attempting Stooq CSV for {ticker}...")
             df = _fetch_stooq(ticker, start, end)
+            if df is not None:
+                print(f"[fetch] ✓ Stooq success ({len(df)} rows)")
+                return df
         except Exception as e:
-            print(f"[fetch] Stooq failed: {e}")
+            err_msg = f"Stooq: {str(e)}"
+            errors.append(err_msg)
+            print(f"[fetch] ✗ {err_msg}")
 
     # ── 4. yfinance last resort ──────────────────────────────────────────────
     if df is None:
         try:
+            print(f"[fetch] Attempting yfinance for {ticker}...")
             df = _fetch_yfinance(ticker, start, end)
+            if df is not None:
+                print(f"[fetch] ✓ yfinance success ({len(df)} rows)")
+                return df
         except Exception as e:
-            print(f"[fetch] yfinance failed: {e}")
+            err_msg = f"yfinance: {str(e)}"
+            errors.append(err_msg)
+            print(f"[fetch] ✗ {err_msg}")
 
     if df is None:
+        error_details = " | ".join(errors) if errors else "Unknown error"
         raise ValueError(
-            f"No data found for '{ticker}'. "
-            "Please check the ticker symbol (e.g. AAPL, TSLA, MSFT, INFY.NS)."
+            f"Could not fetch data for '{ticker}'. "
+            f"All methods failed: {error_details}. "
+            f"Please check the ticker symbol (e.g. AAPL, TSLA, MSFT, INFY.NS) and your internet connection."
         )
 
     cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in df.columns]
