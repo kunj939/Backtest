@@ -80,8 +80,8 @@ def _fetch_yahoo_v8(ticker, start, end):
             }, index=pd.to_datetime(timestamps, unit='s').normalize())
 
             df.index.name = 'Date'
-            df.dropna(subset=['Close'], inplace=True)
-            df.sort_index(inplace=True)
+            df = df.dropna(subset=["Close"])
+            df = df.sort_index()
             return df if len(df) >= 60 else None
         except Exception as e:
             if attempt < 2:
@@ -131,8 +131,8 @@ def _fetch_yahoo_v8_fallback(ticker, start, end):
             }, index=pd.to_datetime(timestamps, unit='s').normalize())
 
             df.index.name = 'Date'
-            df.dropna(subset=['Close'], inplace=True)
-            df.sort_index(inplace=True)
+            df = df.dropna(subset=["Close"])
+            df = df.sort_index()
             return df if len(df) >= 60 else None
         except Exception as e:
             if attempt < 2:
@@ -165,8 +165,8 @@ def _fetch_stooq(ticker, start, end):
                 return None
             df = pd.read_csv(_io.StringIO(content), parse_dates=['Date'], index_col='Date')
             df.columns = [c.strip().title() for c in df.columns]
-            df.sort_index(inplace=True)
-            df.dropna(subset=['Close'], inplace=True)
+            df = df.sort_index()
+            df = df.dropna(subset=["Close"])
             df.index = pd.to_datetime(df.index).tz_localize(None)
             return df if len(df) >= 60 else None
         except Exception as e:
@@ -193,7 +193,7 @@ def _fetch_yfinance(ticker, start, end):
         if 'Close' not in cols:
             return None
         df = raw[cols].copy()
-        df.dropna(subset=['Close'], inplace=True)
+        df = df.dropna(subset=["Close"])
         df.index = pd.to_datetime(df.index).tz_localize(None)
         return df if len(df) >= 60 else None
     except Exception:
@@ -417,10 +417,10 @@ def run_backtest(df, capital):
     df = df.copy()
     df['Market_Return']       = np.log(df['Close'] / df['Close'].shift(1))
     df['Strategy_Return']     = df['Market_Return'] * df['Position'].shift(1)
-    df['Market_Cumulative']   = capital * np.exp(df['Market_Return'].cumsum())
-    df['Strategy_Cumulative'] = capital * np.exp(df['Strategy_Return'].cumsum())
-    df.ffill(inplace=True)
-    df.fillna(0, inplace=True)
+    df['Market_Cumulative']   = capital * np.exp(df['Market_Return'].fillna(0).cumsum())
+    df['Strategy_Cumulative'] = capital * np.exp(df['Strategy_Return'].fillna(0).cumsum())
+    df = df.ffill()
+    df = df.fillna(0)
     return df
 
 def compute_metrics(df, capital, rfr=0.05):
@@ -559,7 +559,10 @@ def run_full_backtest(ticker='AAPL', start='2020-01-01', end=None,
         df.index.name = 'Date'
         df = df.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close','volume':'Volume'})
         keep = [c for c in ['Open','High','Low','Close','Volume'] if c in df.columns]
-        df = df[keep].apply(pd.to_numeric, errors='coerce').dropna(subset=['Close']).sort_index()
+        df = df[keep]
+        for col in keep:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        df = df.dropna(subset=['Close']).sort_index()
     else:
         df = fetch_data(ticker, start, end)
     df      = add_indicators(df, params)
