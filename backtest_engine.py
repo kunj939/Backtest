@@ -1,51 +1,126 @@
 """
-QuantEdge Backtest Engine v2.2
-Data sources: Stooq (primary, no API key) → yfinance fallback
+QuantEdge Backtest Engine v2.3
+Data: Yahoo Finance v8 API (direct, no library) → Stooq CSV fallback
+Both work on Vercel serverless without any API key.
 """
 import pandas as pd
 import numpy as np
 import urllib.request
+import urllib.parse
+import json
 import io as _io
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from datetime import datetime
-import warnings, io, base64
+import warnings, io, base64, time
 warnings.filterwarnings('ignore')
 
 
-# ── DATA FETCH ────────────────────────────────────────────────────────────────
-def _clean_df(raw, ticker):
-    """Normalise columns, strip timezone, validate."""
-    if isinstance(raw.columns, pd.MultiIndex):
-        try:
-            raw = raw.xs(ticker.upper(), axis=1, level=1)
-        except Exception:
-            raw.columns = raw.columns.get_level_values(0)
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA FETCH  —  Yahoo Finance v8 JSON  (primary)  +  Stooq CSV  (fallback)
+# ══════════════════════════════════════════════════════════════════════════════
 
-    raw.columns = [c.strip().title() for c in raw.columns]
-    cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in raw.columns]
-    if 'Close' not in cols:
+def _dt_to_ts(date_str):
+    return int(datetime.strptime(date_str, '%Y-%m-%d').timestamp())
+
+
+def _fetch_yahoo_v8(ticker, start, end):
+    """
+    Yahoo Finance v8 chart API — works on Vercel, no library needed.
+    Returns a clean DataFrame or None.
+    """
+    period1 = _dt_to_ts(start)
+    period2 = _dt_to_ts(end)
+    url = (
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        f"?period1={period1}&period2={period2}&interval=1d&events=history"
+        f"&includeAdjustedClose=true"
+    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = json.loads(r.read().decode('utf-8'))
+
+    result = data['chart']['result']
+    if not result:
         return None
-    df = raw[cols].copy()
+
+    r0        = result[0]
+    timestamps = r0['timestamp']
+    q         = r0['indicators']['quote'][0]
+    adj_close = r0['indicators'].get('adjclose', [{}])[0].get('adjclose', q['close'])
+
+    df = pd.DataFrame({
+        'Open':   q['open'],
+        'High':   q['high'],
+        'Low':    q['low'],
+        'Close':  adj_close,
+        'Volume': q['volume'],
+    }, index=pd.to_datetime(timestamps, unit='s').normalize())
+
+    df.index.name = 'Date'
     df.dropna(subset=['Close'], inplace=True)
-    df.index = pd.to_datetime(df.index).tz_localize(None)
+    df.sort_index(inplace=True)
+    return df if len(df) >= 60 else None
+
+
+def _fetch_yahoo_v8_fallback(ticker, start, end):
+    """Try query2 host if query1 fails."""
+    period1 = _dt_to_ts(start)
+    period2 = _dt_to_ts(end)
+    url = (
+        f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}"
+        f"?period1={period1}&period2={period2}&interval=1d"
+        f"&includeAdjustedClose=true"
+    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = json.loads(r.read().decode('utf-8'))
+
+    result = data['chart']['result']
+    if not result:
+        return None
+
+    r0        = result[0]
+    timestamps = r0['timestamp']
+    q         = r0['indicators']['quote'][0]
+    adj_close = r0['indicators'].get('adjclose', [{}])[0].get('adjclose', q['close'])
+
+    df = pd.DataFrame({
+        'Open':   q['open'],
+        'High':   q['high'],
+        'Low':    q['low'],
+        'Close':  adj_close,
+        'Volume': q['volume'],
+    }, index=pd.to_datetime(timestamps, unit='s').normalize())
+
+    df.index.name = 'Date'
+    df.dropna(subset=['Close'], inplace=True)
     df.sort_index(inplace=True)
     return df if len(df) >= 60 else None
 
 
 def _fetch_stooq(ticker, start, end):
-    """
-    Stooq CSV API — free, no key, works on Vercel.
-    URL: https://stooq.com/q/d/l/?s=AAPL.US&d1=20200101&d2=20251231&i=d
-    """
-    # Stooq uses lowercase ticker + ".US" suffix for US stocks
+    """Stooq free CSV — no API key."""
     sym = ticker.lower()
     if '.' not in sym:
-        sym = sym + '.us'
-    d1 = start.replace('-', '')
-    d2 = end.replace('-', '')
+        sym += '.us'
+    d1  = start.replace('-', '')
+    d2  = end.replace('-', '')
     url = f"https://stooq.com/q/d/l/?s={sym}&d1={d1}&d2={d2}&i=d"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -60,46 +135,6 @@ def _fetch_stooq(ticker, start, end):
     return df if len(df) >= 60 else None
 
 
-def _fetch_alphavantage(ticker, start, end):
-    """
-    Alpha Vantage free tier — requires ALPHA_VANTAGE_KEY env var.
-    Get free key at: https://www.alphavantage.co/support/#api-key
-    """
-    import os, json
-    key = os.environ.get('ALPHA_VANTAGE_KEY', '')
-    if not key:
-        return None
-    url = (f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED"
-           f"&symbol={ticker}&outputsize=full&apikey={key}&datatype=csv")
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        content = r.read().decode('utf-8')
-    if 'timestamp' not in content:
-        return None
-    df = pd.read_csv(_io.StringIO(content), parse_dates=['timestamp'], index_col='timestamp')
-    df.index.name = 'Date'
-    df = df.rename(columns={
-        'open': 'Open', 'high': 'High', 'low': 'Low',
-        'adjusted_close': 'Close', 'volume': 'Volume'
-    })
-    df.sort_index(inplace=True)
-    df = df[df.index >= pd.to_datetime(start)]
-    df.index = pd.to_datetime(df.index).tz_localize(None)
-    df.dropna(subset=['Close'], inplace=True)
-    return df if len(df) >= 60 else None
-
-
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        raw = t.history(start=start, end=end, auto_adjust=True)
-        if raw is None or raw.empty:
-            raw = t.history(period="5y", auto_adjust=True)
-        return _clean_df(raw, ticker) if (raw is not None and not raw.empty) else None
-    except Exception:
-        return None
-
-
 def fetch_data(ticker, start, end=None):
     ticker = ticker.strip().upper().split()[0]
     if end is None:
@@ -107,34 +142,44 @@ def fetch_data(ticker, start, end=None):
 
     df = None
 
-    # ── Source 1: Stooq (free CSV, no API key needed) ────────────────────────
+    # ── 1. Yahoo Finance v8 JSON API (query1) ────────────────────────────────
     try:
-        df = _fetch_stooq(ticker, start, end)
-    except Exception:
-        pass
+        df = _fetch_yahoo_v8(ticker, start, end)
+    except Exception as e:
+        print(f"[fetch] Yahoo query1 failed: {e}")
 
-    # ── Source 2: Alpha Vantage (free, needs ALPHA_VANTAGE_KEY in .env) ──────
+    # ── 2. Yahoo Finance v8 JSON API (query2 mirror) ─────────────────────────
     if df is None:
         try:
-            df = _fetch_alphavantage(ticker, start, end)
-        except Exception:
-            pass
+            df = _fetch_yahoo_v8_fallback(ticker, start, end)
+        except Exception as e:
+            print(f"[fetch] Yahoo query2 failed: {e}")
 
-    # ── Source 3: yfinance fallback ──────────────────────────────────────────
+    # ── 3. Stooq CSV ─────────────────────────────────────────────────────────
     if df is None:
-        df = _fetch_yfinance(ticker, start, end)
+        try:
+            df = _fetch_stooq(ticker, start, end)
+        except Exception as e:
+            print(f"[fetch] Stooq failed: {e}")
 
     if df is None:
         raise ValueError(
             f"No data found for '{ticker}'. "
-            "Check the ticker symbol (use US symbols like AAPL, TSLA, MSFT)."
+            "Please check the ticker symbol (e.g. AAPL, TSLA, MSFT, INFY.NS)."
         )
 
     cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in df.columns]
-    return df[cols]
+    df = df[cols].copy()
+    df.index = pd.to_datetime(df.index).tz_localize(None)
+    if len(df) < 60:
+        raise ValueError(f"Not enough data for '{ticker}' ({len(df)} rows). Try a longer date range.")
+    return df
 
 
-# ── INDICATORS ────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# INDICATORS
+# ══════════════════════════════════════════════════════════════════════════════
+
 def add_indicators(df, p):
     df = df.copy()
     df['MA_Short'] = df['Close'].rolling(p.get('short_ma', 20), min_periods=1).mean()
@@ -163,7 +208,10 @@ def add_indicators(df, p):
     return df
 
 
-# ── STRATEGIES ────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# STRATEGIES
+# ══════════════════════════════════════════════════════════════════════════════
+
 def strat_ma(df, p):
     df = df.copy()
     lm = p.get('long_ma', 50)
@@ -177,7 +225,7 @@ def strat_rsi(df, p):
     pos, cur = [], 0
     for v in df['RSI']:
         if pd.isna(v): pos.append(0); continue
-        if v < p.get('rsi_oversold', 30):   cur = 1
+        if v < p.get('rsi_oversold', 30):    cur = 1
         elif v > p.get('rsi_overbought', 70): cur = 0
         pos.append(cur)
     df['Position'] = pos
@@ -196,7 +244,7 @@ def strat_bb(df, p):
     pos, cur = [], 0
     for _, row in df.iterrows():
         if pd.isna(row['BB_Upper']): pos.append(0); continue
-        if row['Close'] <= row['BB_Lower']:  cur = 1
+        if row['Close'] <= row['BB_Lower']:   cur = 1
         elif row['Close'] >= row['BB_Upper']: cur = 0
         pos.append(cur)
     df['Position'] = pos
@@ -262,11 +310,14 @@ STRATEGY_LABELS = {
 }
 
 
-# ── BACKTEST + METRICS ────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# BACKTEST + METRICS
+# ══════════════════════════════════════════════════════════════════════════════
+
 def run_backtest(df, capital):
     df = df.copy()
-    df['Market_Return']   = np.log(df['Close'] / df['Close'].shift(1))
-    df['Strategy_Return'] = df['Market_Return'] * df['Position'].shift(1)
+    df['Market_Return']       = np.log(df['Close'] / df['Close'].shift(1))
+    df['Strategy_Return']     = df['Market_Return'] * df['Position'].shift(1)
     df['Market_Cumulative']   = capital * np.exp(df['Market_Return'].cumsum())
     df['Strategy_Cumulative'] = capital * np.exp(df['Strategy_Return'].cumsum())
     df.ffill(inplace=True)
@@ -297,9 +348,10 @@ def compute_metrics(df, capital, rfr=0.05):
     for bd in bis:
         fut = sis[sis > bd]
         if len(fut):
-            sd = fut[0]
+            sd  = fut[0]
             pnl = float(df.loc[sd, 'Close']) - float(df.loc[bd, 'Close'])
-            trades.append(pnl); wins.append(1 if pnl > 0 else 0)
+            trades.append(pnl)
+            wins.append(1 if pnl > 0 else 0)
 
     wr     = sum(wins) / len(wins) * 100 if wins else 0
     calmar = cagr / abs(maxdd) if maxdd != 0 else 0
@@ -320,13 +372,19 @@ def compute_metrics(df, capital, rfr=0.05):
     }
 
 
-# ── CHART ─────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# CHART
+# ══════════════════════════════════════════════════════════════════════════════
+
 def generate_chart(df, ticker, metrics, label):
     BG='#0d1117'; PANEL='#161b22'; GREEN='#39d353'; RED='#f85149'
     BLUE='#58a6ff'; YELLOW='#e3b341'; GRAY='#8b949e'; WHITE='#f0f6fc'; ACCENT='#1f6feb'
-    plt.rcParams.update({'font.family':'monospace','text.color':WHITE,'axes.labelcolor':GRAY,
-        'xtick.color':GRAY,'ytick.color':GRAY,'figure.facecolor':BG,'axes.facecolor':PANEL,
-        'axes.edgecolor':'#30363d','grid.color':'#21262d','grid.linewidth':0.5})
+    plt.rcParams.update({
+        'font.family':'monospace','text.color':WHITE,'axes.labelcolor':GRAY,
+        'xtick.color':GRAY,'ytick.color':GRAY,'figure.facecolor':BG,
+        'axes.facecolor':PANEL,'axes.edgecolor':'#30363d',
+        'grid.color':'#21262d','grid.linewidth':0.5
+    })
 
     fig = plt.figure(figsize=(16, 14), facecolor=BG)
     gs  = GridSpec(3, 1, figure=fig, hspace=0.08, height_ratios=[3, 2, 1.5])
@@ -335,48 +393,65 @@ def generate_chart(df, ticker, metrics, label):
     ax1.plot(df.index, df['Close'],    color=WHITE,  lw=1.2, alpha=0.9, label='Close')
     ax1.plot(df.index, df['MA_Short'], color=BLUE,   lw=1.5, ls='--',   label='MA-Short')
     ax1.plot(df.index, df['MA_Long'],  color=YELLOW, lw=1.5, ls='--',   label='MA-Long')
-    buys = df[df['Signal']==1]; sells = df[df['Signal']==-1]
+    buys  = df[df['Signal'] == 1]
+    sells = df[df['Signal'] == -1]
     ax1.scatter(buys.index,  buys['Close'],  marker='^', color=GREEN, s=100, zorder=5, label=f'Buy ({len(buys)})')
     ax1.scatter(sells.index, sells['Close'], marker='v', color=RED,   s=100, zorder=5, label=f'Sell ({len(sells)})')
-    ax1.fill_between(df.index, df['Close'].min(), df['Close'].max(), where=df['Position']==1, alpha=0.05, color=GREEN)
-    ax1.set_title(f'  {ticker} | {label}  ·  QuantEdge v2.1', color=WHITE, fontsize=13, fontweight='bold', loc='left', pad=12)
+    ax1.fill_between(df.index, df['Close'].min(), df['Close'].max(),
+                     where=df['Position'] == 1, alpha=0.05, color=GREEN)
+    ax1.set_title(f'  {ticker} | {label}  ·  QuantEdge v2.3',
+                  color=WHITE, fontsize=13, fontweight='bold', loc='left', pad=12)
     ax1.legend(loc='upper left', framealpha=0.3, fontsize=8, ncol=6)
-    ax1.set_ylabel('Price (USD)', fontsize=9); ax1.grid(True, alpha=0.3); ax1.tick_params(labelbottom=False)
-    ann = f"Return: {metrics['total_return']:+.1f}%  |  Sharpe: {metrics['sharpe_ratio']:.2f}  |  Max DD: {metrics['max_drawdown']:.1f}%  |  Win: {metrics['win_rate']:.1f}%  |  Trades: {metrics['n_trades']}"
-    ax1.annotate(ann, xy=(0.01,0.02), xycoords='axes fraction', fontsize=8.5, color=GRAY,
+    ax1.set_ylabel('Price (USD)', fontsize=9)
+    ax1.grid(True, alpha=0.3)
+    ax1.tick_params(labelbottom=False)
+    ann = (f"Return: {metrics['total_return']:+.1f}%  |  Sharpe: {metrics['sharpe_ratio']:.2f}"
+           f"  |  Max DD: {metrics['max_drawdown']:.1f}%  |  Win: {metrics['win_rate']:.1f}%"
+           f"  |  Trades: {metrics['n_trades']}")
+    ax1.annotate(ann, xy=(0.01, 0.02), xycoords='axes fraction', fontsize=8.5, color=GRAY,
                  bbox=dict(boxstyle='round,pad=0.4', facecolor='#0d1117', alpha=0.7))
 
     ax2.plot(df.index, df['Strategy_Cumulative'], color=GREEN,  lw=2,   label='Strategy')
     ax2.plot(df.index, df['Market_Cumulative'],   color=ACCENT, lw=1.5, label='Buy & Hold', alpha=0.7)
     ax2.axhline(y=metrics['initial_capital'], color=GRAY, ls=':', lw=0.8, alpha=0.5)
     ax2.fill_between(df.index, df['Strategy_Cumulative'], df['Market_Cumulative'],
-        where=df['Strategy_Cumulative']>=df['Market_Cumulative'], alpha=0.12, color=GREEN, interpolate=True)
+        where=df['Strategy_Cumulative'] >= df['Market_Cumulative'], alpha=0.12, color=GREEN, interpolate=True)
     ax2.fill_between(df.index, df['Strategy_Cumulative'], df['Market_Cumulative'],
-        where=df['Strategy_Cumulative']<df['Market_Cumulative'],  alpha=0.12, color=RED,   interpolate=True)
-    ax2.set_ylabel('Portfolio Value (USD)', fontsize=9); ax2.legend(loc='upper left', framealpha=0.3, fontsize=9)
-    ax2.grid(True, alpha=0.3); ax2.tick_params(labelbottom=False)
-    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'${x:,.0f}'))
+        where=df['Strategy_Cumulative'] <  df['Market_Cumulative'], alpha=0.12, color=RED,   interpolate=True)
+    ax2.set_ylabel('Portfolio Value (USD)', fontsize=9)
+    ax2.legend(loc='upper left', framealpha=0.3, fontsize=9)
+    ax2.grid(True, alpha=0.3)
+    ax2.tick_params(labelbottom=False)
+    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
 
     dd = (df['Strategy_Cumulative'] - df['Strategy_Cumulative'].cummax()) / df['Strategy_Cumulative'].cummax() * 100
     ax3.fill_between(df.index, dd, 0, color=RED, alpha=0.45)
     ax3.plot(df.index, dd, color=RED, lw=0.8)
-    ax3.axhline(y=metrics['max_drawdown'], color=YELLOW, ls='--', lw=1, alpha=0.7, label=f"Max DD: {metrics['max_drawdown']:.1f}%")
-    ax3.set_ylabel('Drawdown (%)', fontsize=9); ax3.set_xlabel('Date', fontsize=9)
-    ax3.legend(loc='lower left', framealpha=0.3, fontsize=9); ax3.grid(True, alpha=0.3)
-    ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f'{x:.0f}%'))
+    ax3.axhline(y=metrics['max_drawdown'], color=YELLOW, ls='--', lw=1, alpha=0.7,
+                label=f"Max DD: {metrics['max_drawdown']:.1f}%")
+    ax3.set_ylabel('Drawdown (%)', fontsize=9)
+    ax3.set_xlabel('Date', fontsize=9)
+    ax3.legend(loc='lower left', framealpha=0.3, fontsize=9)
+    ax3.grid(True, alpha=0.3)
+    ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.0f}%'))
 
-    fig.text(0.99, 0.005, 'QuantEdge v2.1  ·  Research only. Not financial advice.',
+    fig.text(0.99, 0.005, 'QuantEdge v2.3  ·  Research only. Not financial advice.',
              ha='right', va='bottom', fontsize=7, color='#484f58', style='italic')
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor=BG)
-    plt.close(fig); buf.seek(0)
+    plt.close(fig)
+    buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
 
-# ── MAIN ENTRY ────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN ENTRY
+# ══════════════════════════════════════════════════════════════════════════════
+
 def run_full_backtest(ticker='AAPL', start='2020-01-01', end=None,
                       strategy='ma_crossover', params=None, capital=100_000.0):
-    if params is None: params = {}
+    if params is None:
+        params = {}
     df      = fetch_data(ticker, start, end)
     df      = add_indicators(df, params)
     df      = STRATEGY_MAP.get(strategy, strat_ma)(df, params)
@@ -385,23 +460,35 @@ def run_full_backtest(ticker='AAPL', start='2020-01-01', end=None,
     label   = params.get('strategy_name', STRATEGY_LABELS.get(strategy, strategy))
     chart   = generate_chart(df, ticker, metrics, label)
 
-    bis = df[df['Signal']==1].index.tolist()
-    sis = df[df['Signal']==-1].index.tolist()
+    bis = df[df['Signal'] == 1].index.tolist()
+    sis = df[df['Signal'] == -1].index.tolist()
     trades = []
     for i, bd in enumerate(bis):
         fut = [s for s in sis if s > bd]
         if fut:
-            sd = fut[0]
-            bp = round(float(df.loc[bd,'Close']), 2)
-            sp = round(float(df.loc[sd,'Close']), 2)
-            pnl = round((sp-bp)/bp*100, 2)
-            trades.append({"trade":i+1,"buy_date":str(bd.date()),"buy_price":bp,
-                           "sell_date":str(sd.date()),"sell_price":sp,
-                           "pnl_pct":pnl,"result":"WIN" if pnl>0 else "LOSS"})
+            sd  = fut[0]
+            bp  = round(float(df.loc[bd, 'Close']), 2)
+            sp  = round(float(df.loc[sd, 'Close']), 2)
+            pnl = round((sp - bp) / bp * 100, 2)
+            trades.append({
+                "trade": i + 1,
+                "buy_date":   str(bd.date()),
+                "buy_price":  bp,
+                "sell_date":  str(sd.date()),
+                "sell_price": sp,
+                "pnl_pct":    pnl,
+                "result":     "WIN" if pnl > 0 else "LOSS"
+            })
+
     return {
-        "ticker": ticker, "start": start,
-        "end": end or datetime.today().strftime('%Y-%m-%d'),
-        "strategy": strategy, "strategy_label": label,
-        "params": params, "metrics": metrics,
-        "chart": chart, "trades": trades[-10:], "data_points": len(df),
+        "ticker":         ticker,
+        "start":          start,
+        "end":            end or datetime.today().strftime('%Y-%m-%d'),
+        "strategy":       strategy,
+        "strategy_label": label,
+        "params":         params,
+        "metrics":        metrics,
+        "chart":          chart,
+        "trades":         trades[-10:],
+        "data_points":    len(df),
     }
