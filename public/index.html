@@ -527,24 +527,14 @@ async function runBacktest() {
   }
 
   try {
-    // Step 1: Fetch OHLCV data in browser (bypasses any server-side network issues)
+    // Step 1: Send the request to the backend and let it fetch OHLCV data itself.
     container.innerHTML = `<div class="loader"><div class="loader-ring"></div><span class="loader-text">Fetching ${ticker} price data...</span></div>`;
-    let ohlcv = null;
-    try {
-      ohlcv = await fetchStockData(ticker, start);
-    } catch (e) {
-      console.warn('Browser data fetch failed, falling back to server fetch:', e.message);
-    }
-
-    // Step 2: Send raw data to backend for calculation
-    container.innerHTML = `<div class="loader"><div class="loader-ring"></div><span class="loader-text">Computing signals & metrics...</span></div>`;
     const body = {
       ticker, start, capital,
       strategy: currentStrategy,
       ...params,
       custom_rules: params.custom_rules || undefined,
     };
-    if (ohlcv) body.ohlcv = ohlcv;
 
     const res = await fetch('/api/backtest', {
       method: 'POST',
