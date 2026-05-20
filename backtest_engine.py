@@ -23,10 +23,13 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from datetime import datetime
 
-# Prevent recursion issues from pandas CoW warnings on Render
+# Prevent recursion issues on Render
 sys.setrecursionlimit(5000)
 warnings.filterwarnings('ignore')
-pd.options.mode.copy_on_write = False
+try:
+    pd.options.mode.copy_on_write = False
+except Exception:
+    pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
