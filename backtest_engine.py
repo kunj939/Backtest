@@ -1,10 +1,11 @@
 """
-QuantEdge Backtest Engine v2.1
-Fixed: yfinance date params, Vercel compatibility, Sharpe overflow guard
+QuantEdge Backtest Engine v2.2
+Data sources: Stooq (primary, no API key) → yfinance fallback
 """
 import pandas as pd
 import numpy as np
-import yfinance as yf
+import urllib.request
+import io as _io
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -15,65 +16,122 @@ warnings.filterwarnings('ignore')
 
 
 # ── DATA FETCH ────────────────────────────────────────────────────────────────
+def _clean_df(raw, ticker):
+    """Normalise columns, strip timezone, validate."""
+    if isinstance(raw.columns, pd.MultiIndex):
+        try:
+            raw = raw.xs(ticker.upper(), axis=1, level=1)
+        except Exception:
+            raw.columns = raw.columns.get_level_values(0)
+
+    raw.columns = [c.strip().title() for c in raw.columns]
+    cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in raw.columns]
+    if 'Close' not in cols:
+        return None
+    df = raw[cols].copy()
+    df.dropna(subset=['Close'], inplace=True)
+    df.index = pd.to_datetime(df.index).tz_localize(None)
+    df.sort_index(inplace=True)
+    return df if len(df) >= 60 else None
+
+
+def _fetch_stooq(ticker, start, end):
+    """
+    Stooq CSV API — free, no key, works on Vercel.
+    URL: https://stooq.com/q/d/l/?s=AAPL.US&d1=20200101&d2=20251231&i=d
+    """
+    # Stooq uses lowercase ticker + ".US" suffix for US stocks
+    sym = ticker.lower()
+    if '.' not in sym:
+        sym = sym + '.us'
+    d1 = start.replace('-', '')
+    d2 = end.replace('-', '')
+    url = f"https://stooq.com/q/d/l/?s={sym}&d1={d1}&d2={d2}&i=d"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        content = r.read().decode('utf-8')
+    if 'No data' in content or len(content) < 100:
+        return None
+    df = pd.read_csv(_io.StringIO(content), parse_dates=['Date'], index_col='Date')
+    df.columns = [c.strip().title() for c in df.columns]
+    df.sort_index(inplace=True)
+    df.dropna(subset=['Close'], inplace=True)
+    df.index = pd.to_datetime(df.index).tz_localize(None)
+    return df if len(df) >= 60 else None
+
+
+def _fetch_alphavantage(ticker, start, end):
+    """
+    Alpha Vantage free tier — requires ALPHA_VANTAGE_KEY env var.
+    Get free key at: https://www.alphavantage.co/support/#api-key
+    """
+    import os, json
+    key = os.environ.get('ALPHA_VANTAGE_KEY', '')
+    if not key:
+        return None
+    url = (f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED"
+           f"&symbol={ticker}&outputsize=full&apikey={key}&datatype=csv")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        content = r.read().decode('utf-8')
+    if 'timestamp' not in content:
+        return None
+    df = pd.read_csv(_io.StringIO(content), parse_dates=['timestamp'], index_col='timestamp')
+    df.index.name = 'Date'
+    df = df.rename(columns={
+        'open': 'Open', 'high': 'High', 'low': 'Low',
+        'adjusted_close': 'Close', 'volume': 'Volume'
+    })
+    df.sort_index(inplace=True)
+    df = df[df.index >= pd.to_datetime(start)]
+    df.index = pd.to_datetime(df.index).tz_localize(None)
+    df.dropna(subset=['Close'], inplace=True)
+    return df if len(df) >= 60 else None
+
+
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+        raw = t.history(start=start, end=end, auto_adjust=True)
+        if raw is None or raw.empty:
+            raw = t.history(period="5y", auto_adjust=True)
+        return _clean_df(raw, ticker) if (raw is not None and not raw.empty) else None
+    except Exception:
+        return None
+
+
 def fetch_data(ticker, start, end=None):
     ticker = ticker.strip().upper().split()[0]
     if end is None:
         end = datetime.today().strftime('%Y-%m-%d')
 
-    raw = None
+    df = None
 
-    # Attempt 1: new yfinance API with group_by='column' to avoid MultiIndex
+    # ── Source 1: Stooq (free CSV, no API key needed) ────────────────────────
     try:
-        raw = yf.download(
-            ticker, start=start, end=end,
-            progress=False, auto_adjust=True,
-            threads=False, group_by='column'
-        )
+        df = _fetch_stooq(ticker, start, end)
     except Exception:
         pass
 
-    # Attempt 2: Ticker object .history() — most reliable across yfinance versions
-    if raw is None or raw.empty:
+    # ── Source 2: Alpha Vantage (free, needs ALPHA_VANTAGE_KEY in .env) ──────
+    if df is None:
         try:
-            t = yf.Ticker(ticker)
-            raw = t.history(start=start, end=end, auto_adjust=True)
-            # history() returns clean single-level columns
+            df = _fetch_alphavantage(ticker, start, end)
         except Exception:
             pass
 
-    # Attempt 3: period fallback
-    if raw is None or raw.empty:
-        try:
-            t = yf.Ticker(ticker)
-            raw = t.history(period="5y", auto_adjust=True)
-        except Exception:
-            pass
+    # ── Source 3: yfinance fallback ──────────────────────────────────────────
+    if df is None:
+        df = _fetch_yfinance(ticker, start, end)
 
-    if raw is None or raw.empty:
-        raise ValueError(f"No data found for '{ticker}'. Check the ticker symbol.")
+    if df is None:
+        raise ValueError(
+            f"No data found for '{ticker}'. "
+            "Check the ticker symbol (use US symbols like AAPL, TSLA, MSFT)."
+        )
 
-    # Flatten MultiIndex columns if present (yfinance >= 0.2.40 quirk)
-    if isinstance(raw.columns, pd.MultiIndex):
-        # Try to select the specific ticker level first
-        try:
-            raw = raw.xs(ticker, axis=1, level=1)
-        except Exception:
-            raw.columns = raw.columns.get_level_values(0)
-
-    # Normalise column names (history() uses 'Close', download() same but check)
-    raw.columns = [c.strip().title() for c in raw.columns]
-
-    cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in raw.columns]
-    if 'Close' not in cols:
-        raise ValueError(f"Price data missing for '{ticker}'. Columns found: {list(raw.columns)}")
-
-    df = raw[cols].copy()
-    df.dropna(subset=['Close'], inplace=True)
-    df.index = pd.to_datetime(df.index).tz_localize(None)  # strip timezone
-
-    if len(df) < 60:
-        raise ValueError(f"Not enough data for '{ticker}' ({len(df)} rows). Try a longer date range.")
-    return df
+    cols = [c for c in ['Open', 'High', 'Low', 'Close', 'Volume'] if c in df.columns]
+    return df[cols]
 
 
 # ── INDICATORS ────────────────────────────────────────────────────────────────
